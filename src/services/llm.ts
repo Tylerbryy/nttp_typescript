@@ -5,16 +5,17 @@
  */
 
 import { generateText, Output } from 'ai';
-import type { LanguageModelV1 } from 'ai';
+import type { LanguageModel } from 'ai';
 import { z } from 'zod';
 import { config } from '../config.js';
 import { logger } from '../utils/logger.js';
 import { LLMError } from '../types/errors.js';
+import type { JsonValue } from '../types/utils.js';
 
 /**
  * Initialize the language model based on the configured provider.
  */
-async function initializeModel(): Promise<LanguageModelV1> {
+async function initializeModel(): Promise<LanguageModel> {
   const provider = config.LLM_CONFIG.provider;
   const modelId = config.LLM_CONFIG.model;
 
@@ -39,9 +40,9 @@ async function initializeModel(): Promise<LanguageModelV1> {
 /**
  * Global model instance (lazy-loaded).
  */
-let _modelInstance: LanguageModelV1 | null = null;
+let _modelInstance: LanguageModel | null = null;
 
-async function getModel(): Promise<LanguageModelV1> {
+async function getModel(): Promise<LanguageModel> {
   if (!_modelInstance) {
     _modelInstance = await initializeModel();
   }
@@ -55,6 +56,9 @@ async function getModel(): Promise<LanguageModelV1> {
  * response will always match the provided Zod schema, eliminating parsing errors
  * and schema validation issues.
  *
+ * Generic type T is constrained to JsonValue to ensure only serializable
+ * types can be returned, preventing type safety issues.
+ *
  * @param prompt User prompt
  * @param system System prompt
  * @param schema Zod schema that response must follow
@@ -64,7 +68,7 @@ async function getModel(): Promise<LanguageModelV1> {
  * @returns Parsed response matching the schema
  * @throws LLMError if all retries fail
  */
-export async function callLLMStructured<T>(
+export async function callLLMStructured<T extends JsonValue>(
   prompt: string,
   system: string,
   schema: z.ZodType<T>,

@@ -68,22 +68,24 @@ export async function executeQuery(
   const result = await getDb().raw(sql, params);
 
   // Knex returns different result structures per dialect
-  // This normalizes them to always return an array of rows
-  if (Array.isArray(result)) {
-    return result;
-  }
+  // Order matters: check more specific structures first
 
-  // PostgreSQL and SQLite return { rows: [...] }
+  // PostgreSQL: returns { rows: [...] }
   if (result.rows) {
     return result.rows;
   }
 
-  // MySQL returns [rows, fields]
-  if (Array.isArray(result[0])) {
+  // MySQL: returns [[rows], [fields]] - check for nested array
+  if (Array.isArray(result) && result.length === 2 && Array.isArray(result[0])) {
     return result[0];
   }
 
-  // SQL Server returns recordset
+  // SQLite: returns array of rows directly
+  if (Array.isArray(result)) {
+    return result;
+  }
+
+  // SQL Server: returns { recordset: [...] }
   if (result.recordset) {
     return result.recordset;
   }
@@ -168,10 +170,6 @@ export function getSchemaDescription(): string {
     const columns = info.columns.join(', ');
     lines.push(`- ${table}: ${columns}`);
 
-    if (info.description) {
-      lines.push(`  ${info.description}`);
-    }
-
     // Add example for first table only (keep it concise)
     if (!exampleAdded) {
       lines.push(`  Example query: "show me ${table}"`);
@@ -187,17 +185,25 @@ export function getSchemaDescription(): string {
 
 /**
  * Build schema information cache for all tables.
+ * Fetches schemas in parallel for better performance.
  */
 async function buildSchemaInfo(): Promise<void> {
   const tables = await getAllTables();
 
-  for (const table of tables) {
+  // Fetch all table schemas in parallel
+  const schemaPromises = tables.map(async (table) => {
     const schema = await getTableSchema(table);
     const columns = schema.map((col: any) => col.column_name);
+    return { table, columns };
+  });
 
+  const results = await Promise.all(schemaPromises);
+
+  // Populate schema info
+  for (const { table, columns } of results) {
     schemaInfo[table] = {
       columns,
-      description: `Table: ${table}`,
+      description: '', // Remove redundant description
     };
   }
 

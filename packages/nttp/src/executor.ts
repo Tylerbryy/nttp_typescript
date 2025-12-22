@@ -4,16 +4,24 @@
  */
 
 import type { Knex } from 'knex';
-import type { Intent, SchemaDefinition } from './types.js';
+import type {
+	Intent,
+	SchemaDefinition,
+	QueryResultMeta,
+	L1CacheMeta,
+	L2CacheMeta,
+	L3CacheMeta,
+} from './types.js';
 import {
-  SQLGenerationError,
-  SQLExecutionError,
-  LLMError,
+	SQLGenerationError,
+	SQLExecutionError,
+	LLMError,
 } from './errors.js';
 import type { LLMService } from './llm.js';
 import type { SchemaCache } from './cache.js';
 import type { ExactCache, SemanticCache } from './cache/index.js';
 import type { CachedResult } from './cache/types.js';
+import type { JsonObject, JsonValue } from './utils.js';
 
 /**
  * JSON Schema for SQL generation (for structured outputs).
@@ -67,26 +75,25 @@ Response: {"sql": "SELECT COUNT(*) as count FROM orders WHERE status = ?", "para
 `;
 
 export interface ExecuteOptions {
-  query: string;
-  intent: Intent;
-  useCache: boolean;
-  forceNewSchema: boolean;
+	query: string;
+	intent: Intent;
+	useCache: boolean;
+	forceNewSchema: boolean;
 }
 
+/**
+ * Result from query execution with type-safe cache metadata.
+ * Uses discriminated union to ensure layer-specific fields are correctly typed.
+ */
 export interface ExecuteResult {
-  query: string;
-  data: Record<string, any>[];
-  schemaId: string;
-  cacheHit: boolean;
-  intent: Intent;
-  sql?: string;
-  params?: any[];
-  meta?: {
-    cacheLayer: 1 | 2 | 3;
-    cost: number;
-    latency: number;
-    similarity?: number;
-  };
+	query: string;
+	data: JsonObject[];
+	schemaId: string;
+	cacheHit: boolean;
+	intent: Intent;
+	sql?: string;
+	params?: JsonValue[];
+	meta?: QueryResultMeta;
 }
 
 /**
@@ -123,6 +130,11 @@ export class QueryExecutor {
       const l1Hit = this.l1Cache.get(query);
       if (l1Hit) {
         const data = await this.executeRaw(l1Hit.sql, l1Hit.params);
+        const meta: L1CacheMeta = {
+          cacheLayer: 1,
+          cost: 0,
+          latency: Date.now() - startTime,
+        };
         return {
           query,
           data,
@@ -131,11 +143,7 @@ export class QueryExecutor {
           intent,
           sql: l1Hit.sql,
           params: l1Hit.params,
-          meta: {
-            cacheLayer: 1,
-            cost: 0,
-            latency: Date.now() - startTime,
-          },
+          meta,
         };
       }
     }
@@ -144,37 +152,40 @@ export class QueryExecutor {
     // L2: SEMANTIC MATCH (embedding-based similarity)
     // Cost: ~$0.0001 | Latency: 50-100ms
     // ─────────────────────────────────────────────────────────
+    let l2Embedding: number[] | undefined;
     if (this.l2Cache && useCache && !forceNewSchema) {
-      const l2Match = await this.l2Cache.find(query);
+      const { match, embedding } = await this.l2Cache.find(query);
+      l2Embedding = embedding; // Save for L3 if needed
 
-      if (l2Match) {
+      if (match) {
         const data = await this.executeRaw(
-          l2Match.result.sql,
-          l2Match.result.params
+          match.result.sql,
+          match.result.params
         );
 
         // Promote to L1 for future exact matches
         if (this.l1Cache) {
-          this.l1Cache.set(query, l2Match.result);
+          this.l1Cache.set(query, match.result);
         }
 
+        const meta: L2CacheMeta = {
+          cacheLayer: 2,
+          cost: 0.0001,
+          latency: Date.now() - startTime,
+          similarity: match.similarity,
+        };
         return {
           query,
           data,
-          schemaId: l2Match.result.schemaId,
+          schemaId: match.result.schemaId,
           cacheHit: true,
           intent,
-          sql: l2Match.result.sql,
-          params: l2Match.result.params,
-          meta: {
-            cacheLayer: 2,
-            cost: 0.0001,
-            latency: Date.now() - startTime,
-            similarity: l2Match.similarity,
-          },
+          sql: match.result.sql,
+          params: match.result.params,
+          meta,
         };
       }
-      // If L2 miss, we don't save the embedding (it will be regenerated in L3)
+      // L2 miss - embedding saved for reuse in L3 to prevent double API billing
     }
 
     // ─────────────────────────────────────────────────────────
@@ -200,8 +211,13 @@ export class QueryExecutor {
     }
 
     if (this.l2Cache) {
-      // Generate and cache embedding
-      await this.l2Cache.add(query, result);
+      // Reuse embedding from L2 miss to prevent double API billing
+      if (l2Embedding) {
+        this.l2Cache.addWithEmbedding(query, l2Embedding, result);
+      } else {
+        // L2 not checked (cache disabled or forced new schema)
+        await this.l2Cache.add(query, result);
+      }
     }
 
     // Also populate v1 schema cache (for backward compat)
@@ -220,6 +236,11 @@ export class QueryExecutor {
     };
     await this.cache.set(schemaId, schemaDefinition);
 
+    const meta: L3CacheMeta = {
+      cacheLayer: 3,
+      cost: 0.01,
+      latency: Date.now() - startTime,
+    };
     return {
       query,
       data,
@@ -228,11 +249,7 @@ export class QueryExecutor {
       intent,
       sql,
       params,
-      meta: {
-        cacheLayer: 3,
-        cost: 0.01,
-        latency: Date.now() - startTime,
-      },
+      meta,
     };
   }
 
@@ -308,7 +325,7 @@ export class QueryExecutor {
   /**
    * Generate SQL query from intent.
    */
-  async generateSql(intent: Intent): Promise<{ sql: string; params: any[] }> {
+  async generateSql(intent: Intent): Promise<{ sql: string; params: JsonValue[] }> {
     try {
       // Prepare intent for LLM
       const intentDict = {
@@ -329,7 +346,7 @@ export class QueryExecutor {
       // Call LLM to generate SQL
       const result = await this.llm.callStructured<{
         sql: string;
-        params: any[];
+        params: JsonValue[];
       }>(
         `Generate SQL for this intent:\n${JSON.stringify(intentDict, null, 2)}`,
         systemPrompt,
@@ -354,18 +371,18 @@ export class QueryExecutor {
    */
   private async executeRaw(
     sql: string,
-    params: any[] = []
-  ): Promise<Record<string, any>[]> {
+    params: JsonValue[] = []
+  ): Promise<JsonObject[]> {
     try {
       const result = await this.db.raw(sql, params);
 
       // Normalize different dialect return formats
       if (Array.isArray(result)) {
-        return result;
+        return result as JsonObject[];
       }
-      if (result.rows) return result.rows; // PostgreSQL
-      if (Array.isArray(result[0])) return result[0]; // MySQL
-      if (result.recordset) return result.recordset; // SQL Server
+      if (result.rows) return result.rows as JsonObject[]; // PostgreSQL
+      if (Array.isArray(result[0])) return result[0] as JsonObject[]; // MySQL
+      if (result.recordset) return result.recordset as JsonObject[]; // SQL Server
 
       return [];
     } catch (error) {
@@ -403,8 +420,8 @@ export class QueryExecutor {
    * Infer JSON schema from query results.
    */
   private inferSchemaFromResults(
-    results: any[]
-  ): Record<string, { type: string }> {
+    results: JsonObject[]
+  ): JsonObject {
     if (results.length === 0) {
       return {};
     }

@@ -3,6 +3,13 @@
  */
 
 import type { Knex } from 'knex';
+import type {
+	JsonValue,
+	JsonObject,
+	FilterConditions,
+	SortSpec,
+	OperationType,
+} from './utils.js';
 
 /**
  * nttp configuration
@@ -143,6 +150,44 @@ export interface QueryOptions {
   forceNewSchema?: boolean;
 }
 
+// ============================================================================
+// DISCRIMINATED UNIONS FOR CACHE METADATA
+// ============================================================================
+
+/**
+ * L1 Cache metadata (exact match, no cost).
+ */
+export interface L1CacheMeta {
+	readonly cacheLayer: 1;
+	readonly cost: 0;
+	readonly latency: number;
+}
+
+/**
+ * L2 Cache metadata (semantic match with similarity score).
+ */
+export interface L2CacheMeta {
+	readonly cacheLayer: 2;
+	readonly cost: number;
+	readonly latency: number;
+	readonly similarity: number;
+}
+
+/**
+ * L3 Cache metadata (LLM generation, highest cost).
+ */
+export interface L3CacheMeta {
+	readonly cacheLayer: 3;
+	readonly cost: number;
+	readonly latency: number;
+}
+
+/**
+ * Discriminated union for query result metadata.
+ * Ensures type-safe access to layer-specific fields.
+ */
+export type QueryResultMeta = L1CacheMeta | L2CacheMeta | L3CacheMeta;
+
 /**
  * Query result
  */
@@ -155,7 +200,7 @@ export interface QueryResult {
   /**
    * Query results
    */
-  data: Record<string, any>[];
+  data: JsonObject[];
 
   /**
    * Schema ID for caching
@@ -185,32 +230,13 @@ export interface QueryResult {
   /**
    * SQL parameters (for debugging)
    */
-  params?: any[];
+  params?: JsonValue[];
 
   /**
    * Cache metadata (optional)
+   * Uses discriminated union for type-safe access to layer-specific fields
    */
-  meta?: {
-    /**
-     * Which cache layer served this query (1, 2, or 3)
-     */
-    cacheLayer: 1 | 2 | 3;
-
-    /**
-     * Estimated cost in USD
-     */
-    cost: number;
-
-    /**
-     * Latency in milliseconds
-     */
-    latency: number;
-
-    /**
-     * Similarity score for L2 hits (0-1)
-     */
-    similarity?: number;
-  };
+  meta?: QueryResultMeta;
 }
 
 /**
@@ -225,12 +251,12 @@ export interface Intent {
   /**
    * Operation type
    */
-  operation: 'list' | 'count' | 'aggregate' | 'filter';
+  operation: OperationType;
 
   /**
    * Filter conditions
    */
-  filters?: Record<string, any>;
+  filters?: FilterConditions;
 
   /**
    * Result limit
@@ -243,9 +269,10 @@ export interface Intent {
   fields?: string[] | null;
 
   /**
-   * Sort configuration
+   * Sort configuration (format: "field:direction")
+   * @example "created_at:desc"
    */
-  sort?: string | null;
+  sort?: SortSpec | null;
 
   /**
    * Normalized intent string
@@ -275,12 +302,12 @@ export interface SchemaDefinition {
   /**
    * SQL query parameters
    */
-  sql_params: any[];
+  sql_params: JsonValue[];
 
   /**
    * JSON schema for results
    */
-  result_schema: Record<string, any>;
+  result_schema: JsonObject;
 
   /**
    * Number of times this schema was used

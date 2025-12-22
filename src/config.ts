@@ -56,7 +56,7 @@ const ConfigSchema = z.object({
   EMBEDDING_PROVIDER: z
     .enum(['openai', 'cohere', 'mistral', 'google'])
     .default('openai'),
-  EMBEDDING_MODEL: z.string().default('text-embedding-3-small'),
+  EMBEDDING_MODEL: z.string().optional(), // Provider-specific defaults applied in loadConfig()
   L1_CACHE_SIZE: z.coerce.number().int().positive().default(1000),
   L2_CACHE_SIZE: z.coerce.number().int().positive().default(500),
   SIMILARITY_THRESHOLD: z.coerce.number().min(0).max(1).default(0.85),
@@ -68,11 +68,11 @@ const ConfigSchema = z.object({
 type BaseConfig = z.infer<typeof ConfigSchema>;
 
 /**
- * Extended configuration with parsed KNEX_CONFIG and LLM_CONFIG.
+ * Extended configuration with parsed KNEX_CONFIG, LLM_CONFIG, and EMBEDDING_CONFIG.
  */
 export interface Config extends Omit<BaseConfig,
   'DATABASE_TYPE' | 'DATABASE_PATH' | 'DATABASE_URL' |
-  'LLM_PROVIDER' | 'LLM_MODEL' |
+  'LLM_PROVIDER' | 'LLM_MODEL' | 'EMBEDDING_PROVIDER' | 'EMBEDDING_MODEL' |
   'ANTHROPIC_API_KEY' | 'OPENAI_API_KEY' | 'COHERE_API_KEY' | 'MISTRAL_API_KEY' | 'GOOGLE_API_KEY'
 > {
   KNEX_CONFIG: Knex.Config;
@@ -81,6 +81,11 @@ export interface Config extends Omit<BaseConfig,
     model: string;
     apiKey: string;
     maxTokens: number;
+  };
+  EMBEDDING_CONFIG: {
+    provider: 'openai' | 'cohere' | 'mistral' | 'google';
+    model: string;
+    apiKey: string;
   };
 }
 
@@ -211,13 +216,63 @@ function loadConfig(): Config {
     maxTokens: 2048,
   };
 
-  // Return config with KNEX_CONFIG and LLM_CONFIG
+  // Determine embedding API key and default model based on provider
+  let embeddingApiKey: string;
+  let embeddingModel: string;
+
+  switch (baseConfig.EMBEDDING_PROVIDER) {
+    case 'openai':
+      if (!baseConfig.OPENAI_API_KEY) {
+        console.error('OPENAI_API_KEY is required when EMBEDDING_PROVIDER is openai');
+        process.exit(1);
+      }
+      embeddingApiKey = baseConfig.OPENAI_API_KEY;
+      embeddingModel = baseConfig.EMBEDDING_MODEL || 'text-embedding-3-small';
+      break;
+    case 'cohere':
+      if (!baseConfig.COHERE_API_KEY) {
+        console.error('COHERE_API_KEY is required when EMBEDDING_PROVIDER is cohere');
+        process.exit(1);
+      }
+      embeddingApiKey = baseConfig.COHERE_API_KEY;
+      embeddingModel = baseConfig.EMBEDDING_MODEL || 'embed-v4.0';
+      break;
+    case 'mistral':
+      if (!baseConfig.MISTRAL_API_KEY) {
+        console.error('MISTRAL_API_KEY is required when EMBEDDING_PROVIDER is mistral');
+        process.exit(1);
+      }
+      embeddingApiKey = baseConfig.MISTRAL_API_KEY;
+      embeddingModel = baseConfig.EMBEDDING_MODEL || 'mistral-embed';
+      break;
+    case 'google':
+      if (!baseConfig.GOOGLE_API_KEY) {
+        console.error('GOOGLE_API_KEY is required when EMBEDDING_PROVIDER is google');
+        process.exit(1);
+      }
+      embeddingApiKey = baseConfig.GOOGLE_API_KEY;
+      embeddingModel = baseConfig.EMBEDDING_MODEL || 'text-embedding-004';
+      break;
+    default:
+      throw new Error(`Unsupported embedding provider: ${baseConfig.EMBEDDING_PROVIDER}`);
+  }
+
+  // Build embedding config
+  const embeddingConfig = {
+    provider: baseConfig.EMBEDDING_PROVIDER,
+    model: embeddingModel,
+    apiKey: embeddingApiKey,
+  };
+
+  // Return config with KNEX_CONFIG, LLM_CONFIG, and EMBEDDING_CONFIG
   const {
     DATABASE_TYPE,
     DATABASE_PATH,
     DATABASE_URL,
     LLM_PROVIDER,
     LLM_MODEL,
+    EMBEDDING_PROVIDER,
+    EMBEDDING_MODEL,
     ANTHROPIC_API_KEY,
     OPENAI_API_KEY,
     COHERE_API_KEY,
@@ -230,6 +285,7 @@ function loadConfig(): Config {
     ...rest,
     KNEX_CONFIG: knexConfig,
     LLM_CONFIG: llmConfig,
+    EMBEDDING_CONFIG: embeddingConfig,
   };
 }
 

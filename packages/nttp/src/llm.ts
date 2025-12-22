@@ -6,6 +6,7 @@
 import { generateText } from 'ai';
 import type { LanguageModel } from 'ai';
 import { LLMError } from './errors.js';
+import type { JsonValue, JsonObject } from './utils.js';
 
 export interface LLMConfig {
   provider: 'anthropic' | 'openai' | 'cohere' | 'mistral' | 'google';
@@ -110,6 +111,9 @@ export class LLMService {
    * Uses AI SDK's generateText to generate JSON responses that match
    * the provided schema.
    *
+   * Generic type T is constrained to JsonValue to ensure only serializable
+   * types can be returned, preventing type safety issues.
+   *
    * @param prompt User prompt
    * @param system System prompt
    * @param jsonSchema JSON schema that response must follow
@@ -118,10 +122,10 @@ export class LLMService {
    * @returns Parsed JSON response matching the schema
    * @throws LLMError if all retries fail
    */
-  async callStructured<T>(
+  async callStructured<T extends JsonValue>(
     prompt: string,
     system: string,
-    jsonSchema: Record<string, any>,
+    jsonSchema: JsonObject,
     temperature: number = 0.0,
     maxRetries: number = 3
   ): Promise<T> {

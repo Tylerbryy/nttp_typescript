@@ -40,13 +40,40 @@ export async function runDiagnostics(): Promise<void> {
   if (envExists) {
     const envContent = readFileSync(envPath, 'utf-8');
 
-    // Check 2: ANTHROPIC_API_KEY
-    const hasApiKey = envContent.includes('ANTHROPIC_API_KEY=sk-ant-');
+    // Check 2: LLM API Key (supports multiple providers)
+    const providerMatch = envContent.match(/LLM_PROVIDER=(\w+)/);
+    const provider = providerMatch?.[1];
+
+    let hasApiKey = false;
+    let apiKeyName = 'LLM_API_KEY';
+
+    if (provider === 'anthropic') {
+      hasApiKey = envContent.includes('ANTHROPIC_API_KEY=sk-ant-');
+      apiKeyName = 'ANTHROPIC_API_KEY';
+    } else if (provider === 'openai') {
+      hasApiKey = envContent.includes('OPENAI_API_KEY=sk-');
+      apiKeyName = 'OPENAI_API_KEY';
+    } else if (provider === 'cohere') {
+      // Looser validation for Cohere (trial keys may vary)
+      hasApiKey = /COHERE_API_KEY=\S{10,}/.test(envContent);
+      apiKeyName = 'COHERE_API_KEY';
+    } else if (provider === 'mistral') {
+      hasApiKey = envContent.includes('MISTRAL_API_KEY=');
+      apiKeyName = 'MISTRAL_API_KEY';
+    } else if (provider === 'google') {
+      hasApiKey = envContent.includes('GOOGLE_API_KEY=');
+      apiKeyName = 'GOOGLE_API_KEY';
+    }
+
     checks.push({
-      name: 'Anthropic API Key',
+      name: 'LLM API Key',
       passed: hasApiKey,
-      message: hasApiKey ? 'API key configured' : 'API key missing or invalid',
-      fix: hasApiKey ? undefined : 'Add ANTHROPIC_API_KEY=sk-ant-... to .env',
+      message: hasApiKey
+        ? `${provider || 'unknown'} API key configured`
+        : provider
+          ? `${provider} API key missing or invalid`
+          : 'LLM_PROVIDER not set',
+      fix: hasApiKey ? undefined : `Add ${apiKeyName} to .env`,
     });
 
     // Check 3: DATABASE_TYPE
@@ -118,15 +145,15 @@ export async function runDiagnostics(): Promise<void> {
     });
   }
 
-  // Check 6: Node version
+  // Check 6: Node version (supports Node 18 LTS and higher)
   const nodeVersion = process.version;
   const majorVersion = parseInt(nodeVersion.slice(1).split('.')[0]);
-  const validNodeVersion = majorVersion >= 20;
+  const validNodeVersion = majorVersion >= 18;
   checks.push({
     name: 'Node.js Version',
     passed: validNodeVersion,
-    message: `Node ${nodeVersion}`,
-    fix: validNodeVersion ? undefined : 'Upgrade to Node.js 20 or higher',
+    message: `Node ${nodeVersion}${validNodeVersion ? '' : ' (too old)'}`,
+    fix: validNodeVersion ? undefined : 'Upgrade to Node.js 18 or higher (20 LTS recommended)',
   });
 
   // Check 7: TypeScript compilation

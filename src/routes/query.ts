@@ -50,10 +50,16 @@ export async function queryRoutes(fastify: FastifyInstance) {
       },
     },
     async (request, _reply) => {
+      // Explicit type coercion for query strings (they arrive as strings)
+      const useCache = request.query.use_cache === false ||
+                       request.query.use_cache === 'false' ? false : true;
+      const forceNewSchema = request.query.force_new_schema === true ||
+                            request.query.force_new_schema === 'true' ? true : false;
+
       const result = await executeQueryWithCache({
         query: request.query.q,
-        use_cache: request.query.use_cache ?? true,
-        force_new_schema: request.query.force_new_schema ?? false,
+        use_cache: useCache,
+        force_new_schema: forceNewSchema,
       });
       return result;
     }

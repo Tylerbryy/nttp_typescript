@@ -53,6 +53,12 @@ export async function seedRichDatabase(
   logger.section('Creating Rich E-commerce Database');
   logger.newline();
 
+  // Warn about potential database locking
+  logger.warn(
+    'If the server is running, stop it first to avoid SQLITE_BUSY errors during seeding.'
+  );
+  logger.newline();
+
   const db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
 
@@ -69,6 +75,9 @@ export async function seedRichDatabase(
     await seedProducts(db, counts.products);
     await seedOrders(db, counts.orders);
     await seedReviews(db, counts.reviews);
+
+    // Sync product review counts and ratings with actual data
+    await syncProductReviewStats(db);
 
     // Re-enable foreign keys
     db.pragma('foreign_keys = ON');
@@ -319,6 +328,10 @@ async function seedOrders(db: Database.Database, count: number): Promise<void> {
     VALUES (?, ?, ?, ?)
   `);
 
+  const getProductPrice = db.prepare(`
+    SELECT price FROM products WHERE id = ?
+  `);
+
   const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number };
   const productCount = db.prepare('SELECT COUNT(*) as count FROM products').get() as { count: number };
 
@@ -359,7 +372,10 @@ async function seedOrders(db: Database.Database, count: number): Promise<void> {
         for (let j = 0; j < itemCount; j++) {
           const productId = faker.number.int({ min: 1, max: productCount.count });
           const quantity = faker.number.int({ min: 1, max: 3 });
-          const price = parseFloat(faker.commerce.price({ min: 10, max: 500 }));
+
+          // Fetch actual product price for data consistency
+          const product = getProductPrice.get(productId) as { price: number } | undefined;
+          const price = product?.price || parseFloat(faker.commerce.price({ min: 10, max: 500 }));
 
           insertItem.run(orderId, productId, quantity, price);
           orderTotal += price * quantity;
@@ -430,6 +446,35 @@ async function seedReviews(db: Database.Database, count: number): Promise<void> 
   }
 
   spinner.succeed(`Generated ${count.toLocaleString()} reviews`);
+}
+
+/**
+ * Sync product review_count and rating fields with actual review data.
+ * Fixes the mismatch between randomly generated counts and actual reviews.
+ */
+async function syncProductReviewStats(db: Database.Database): Promise<void> {
+  const spinner = logger.spinner('Syncing product review statistics...');
+
+  // Update review_count and rating based on actual reviews table
+  db.prepare(`
+    UPDATE products
+    SET
+      review_count = (
+        SELECT COUNT(*)
+        FROM reviews
+        WHERE reviews.product_id = products.id
+      ),
+      rating = COALESCE(
+        (
+          SELECT AVG(rating)
+          FROM reviews
+          WHERE reviews.product_id = products.id
+        ),
+        0
+      )
+  `).run();
+
+  spinner.succeed('Synced product review statistics with actual data');
 }
 
 /**

@@ -5,7 +5,7 @@
 
 import prompts from 'prompts';
 import { writeFileSync, existsSync } from 'fs';
-import { join } from 'path';
+import { join, resolve } from 'path';
 import * as logger from './logger.js';
 
 interface SetupConfig {
@@ -85,17 +85,21 @@ export async function runSetupWizard(): Promise<void> {
 
   const config: Partial<SetupConfig> = { databaseType };
 
+  // Track database seeding intent (defer execution until after .env is written)
+  let seedOptions: { path: string; size: 'full' | 'small' } | null = null;
+
   // Database-specific configuration
   if (databaseType === 'sqlite3') {
-    const { path } = await prompts({
+    const { path: dbPath } = await prompts({
       type: 'text',
       name: 'path',
       message: 'SQLite database file path:',
       initial: './nttp.db',
     });
-    config.databasePath = path;
+    // Convert to absolute path to avoid issues with different CWDs
+    config.databasePath = resolve(dbPath);
 
-    // Offer to create sample database
+    // Offer to create sample database (store intent, don't execute yet)
     const { createSample } = await prompts({
       type: 'select',
       name: 'createSample',
@@ -107,9 +111,9 @@ export async function runSetupWizard(): Promise<void> {
           description: 'Rich dataset for realistic testing',
         },
         {
-          title: 'Yes, small dataset (100 users, 50 products, 200 orders) ~1MB',
+          title: 'Yes, small dataset (500 users, 500 products, 2k orders) ~5MB',
           value: 'small',
-          description: 'Quick setup for development',
+          description: 'Good for testing semantic search',
         },
         {
           title: 'No, I have my own database',
@@ -119,10 +123,12 @@ export async function runSetupWizard(): Promise<void> {
       initial: 0,
     });
 
-    if (createSample === 'full') {
-      await createRichDatabase(path, 'full');
-    } else if (createSample === 'small') {
-      await createRichDatabase(path, 'small');
+    if (createSample === 'full' || createSample === 'small') {
+      // Store intent - will execute after .env is written
+      seedOptions = {
+        path: config.databasePath!,
+        size: createSample as 'full' | 'small',
+      };
     }
   } else {
     const { url } = await prompts({
@@ -180,19 +186,27 @@ export async function runSetupWizard(): Promise<void> {
   const llmKeyPrefixes: Record<string, string> = {
     anthropic: 'sk-ant-',
     openai: 'sk-',
-    cohere: 'co-',
+    cohere: 'co-', // Note: Some Cohere keys may have different prefixes
     mistral: 'ms-',
-    google: 'goog-',
+    google: 'AIza', // Google AI Studio keys start with AIza
   };
 
   const { llmApiKey } = await prompts({
     type: 'password',
     name: 'llmApiKey',
     message: `${llmProvider.toUpperCase()} API key:`,
-    validate: (value: string) =>
-      value.startsWith(llmKeyPrefixes[llmProvider])
+    validate: (value: string) => {
+      if (!value || value.length < 10) {
+        return 'API key must be at least 10 characters';
+      }
+      // Looser validation for Cohere (trial keys may differ)
+      if (llmProvider === 'cohere') {
+        return true;
+      }
+      return value.startsWith(llmKeyPrefixes[llmProvider])
         ? true
-        : `API key should start with "${llmKeyPrefixes[llmProvider]}"`,
+        : `API key should start with "${llmKeyPrefixes[llmProvider]}"`;
+    },
   });
 
   if (!llmApiKey) {
@@ -202,52 +216,149 @@ export async function runSetupWizard(): Promise<void> {
 
   config.llmApiKey = llmApiKey;
 
-  // Embedding provider selection
-  const { embeddingProvider } = await prompts({
-    type: 'select',
-    name: 'embeddingProvider',
-    message: 'Which embedding provider for semantic cache?',
-    choices: [
-      {
-        title: 'OpenAI - recommended',
-        value: 'openai',
-        description: 'text-embedding-3-small - best quality/price',
-      },
-      {
-        title: 'Cohere',
-        value: 'cohere',
-        description: 'embed-english-v3.0 - fast and cheap',
-      },
-    ],
-    initial: 0,
-  });
+  // Ask if user wants to use same provider for embeddings
+  let embeddingProvider: 'openai' | 'cohere' | 'mistral' | 'google';
+  let distinctEmbeddingConfig = false; // Track if user wants separate embedding config
 
-  if (!embeddingProvider) {
-    logger.error('Setup cancelled');
-    return;
+  // Only offer same-provider option if LLM provider supports embeddings
+  const providersWithEmbeddings = ['openai', 'cohere', 'mistral', 'google'];
+
+  if (providersWithEmbeddings.includes(llmProvider)) {
+    const { useSameProvider } = await prompts({
+      type: 'select',
+      name: 'useSameProvider',
+      message: 'Embedding provider for semantic cache (L2)?',
+      choices: [
+        {
+          title: `Use ${llmProvider.toUpperCase()} for everything (recommended)`,
+          value: 'same',
+          description: `Reuse ${llmProvider} API key - simpler setup`,
+        },
+        {
+          title: 'Use different provider for embeddings',
+          value: 'different',
+          description: 'Mix and match providers (advanced)',
+        },
+      ],
+      initial: 0,
+    });
+
+    if (!useSameProvider) {
+      logger.error('Setup cancelled');
+      return;
+    }
+
+    if (useSameProvider === 'same') {
+      embeddingProvider = llmProvider as typeof embeddingProvider;
+      distinctEmbeddingConfig = false; // Same config, will reuse API key
+    } else {
+      distinctEmbeddingConfig = true; // User wants separate config
+      // Ask for embedding provider
+      const response = await prompts({
+        type: 'select',
+        name: 'embeddingProvider',
+        message: 'Which embedding provider?',
+        choices: [
+          {
+            title: 'OpenAI',
+            value: 'openai',
+            description: 'text-embedding-3-small - best quality/price',
+          },
+          {
+            title: 'Cohere',
+            value: 'cohere',
+            description: 'embed-v4.0 - fast and multilingual',
+          },
+          {
+            title: 'Mistral',
+            value: 'mistral',
+            description: 'mistral-embed - good for French/English',
+          },
+          {
+            title: 'Google',
+            value: 'google',
+            description: 'text-embedding-004 - powerful',
+          },
+        ],
+        initial: 0,
+      });
+
+      if (!response.embeddingProvider) {
+        logger.error('Setup cancelled');
+        return;
+      }
+
+      embeddingProvider = response.embeddingProvider;
+    }
+  } else {
+    // Anthropic doesn't have embeddings, so must use separate provider
+    distinctEmbeddingConfig = true; // Always distinct for Anthropic
+    const response = await prompts({
+      type: 'select',
+      name: 'embeddingProvider',
+      message: 'Which embedding provider for semantic cache?',
+      choices: [
+        {
+          title: 'OpenAI - recommended',
+          value: 'openai',
+          description: 'text-embedding-3-small - best quality/price',
+        },
+        {
+          title: 'Cohere',
+          value: 'cohere',
+          description: 'embed-v4.0 - fast and multilingual',
+        },
+        {
+          title: 'Mistral',
+          value: 'mistral',
+          description: 'mistral-embed - good for French/English',
+        },
+        {
+          title: 'Google',
+          value: 'google',
+          description: 'text-embedding-004 - powerful',
+        },
+      ],
+      initial: 0,
+    });
+
+    if (!response.embeddingProvider) {
+      logger.error('Setup cancelled');
+      return;
+    }
+
+    embeddingProvider = response.embeddingProvider;
   }
 
   config.embeddingProvider = embeddingProvider;
 
-  // Set default embedding model
+  // Set default embedding model (matches config.ts defaults)
   const embeddingModels: Record<string, string> = {
     openai: 'text-embedding-3-small',
-    cohere: 'embed-english-v3.0',
+    cohere: 'embed-v4.0',
     mistral: 'mistral-embed',
     google: 'text-embedding-004',
   };
   config.embeddingModel = embeddingModels[embeddingProvider];
 
-  // Embedding API key (if different from LLM)
-  if (embeddingProvider !== llmProvider) {
+  // Embedding API key (ask if distinct config requested OR different provider)
+  if (distinctEmbeddingConfig) {
     const { embeddingApiKey } = await prompts({
       type: 'password',
       name: 'embeddingApiKey',
       message: `${embeddingProvider.toUpperCase()} API key for embeddings:`,
-      validate: (value: string) =>
-        value.startsWith(llmKeyPrefixes[embeddingProvider])
+      validate: (value: string) => {
+        if (!value || value.length < 10) {
+          return 'API key must be at least 10 characters';
+        }
+        // Looser validation for Cohere (trial keys may differ)
+        if (embeddingProvider === 'cohere') {
+          return true;
+        }
+        return value.startsWith(llmKeyPrefixes[embeddingProvider])
           ? true
-          : `API key should start with "${llmKeyPrefixes[embeddingProvider]}"`,
+          : `API key should start with "${llmKeyPrefixes[embeddingProvider]}"`;
+      },
     });
 
     if (!embeddingApiKey) {
@@ -257,7 +368,7 @@ export async function runSetupWizard(): Promise<void> {
 
     config.embeddingApiKey = embeddingApiKey;
   } else {
-    // Reuse LLM API key
+    // Reuse LLM API key (user selected "Use {PROVIDER} for everything")
     config.embeddingApiKey = llmApiKey;
   }
 
@@ -300,6 +411,14 @@ export async function runSetupWizard(): Promise<void> {
   // Generate .env file
   const envContent = generateEnvFile(config as SetupConfig);
   writeFileSync(envPath, envContent);
+
+  // Execute database seeding now (after .env is written)
+  if (seedOptions) {
+    logger.newline();
+    logger.info('Generating sample database... This may take a moment.');
+    logger.newline();
+    await createRichDatabase(seedOptions.path, seedOptions.size);
+  }
 
   logger.newline();
   logger.successBox(
@@ -413,10 +532,10 @@ async function createRichDatabase(path: string, size: 'full' | 'small'): Promise
             reviews: 25000,
           }
         : {
-            users: 100,
-            products: 50,
-            orders: 200,
-            reviews: 150,
+            users: 500,
+            products: 500,
+            orders: 2000,
+            reviews: 1500,
           };
 
     await seedRichDatabase(path, counts);

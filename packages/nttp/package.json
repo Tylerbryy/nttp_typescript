@@ -17,8 +17,7 @@
   ],
   "scripts": {
     "build": "tsc",
-    "dev": "tsc --watch",
-    "test": "vitest"
+    "dev": "tsc --watch"
   },
   "keywords": [
     "nttp",
@@ -79,8 +78,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.12.7",
-    "typescript": "^5.4.5",
-    "vitest": "^1.5.0"
+    "typescript": "^5.4.5"
   },
   "engines": {
     "node": ">=20.0.0"

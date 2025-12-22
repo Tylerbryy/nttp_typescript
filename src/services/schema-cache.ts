@@ -8,25 +8,60 @@ import { logger } from '../utils/logger.js';
 import { CacheError } from '../types/errors.js';
 
 /**
- * In-memory cache for schema definitions.
+ * In-memory cache for schema definitions with LRU eviction.
  *
  * Node.js is single-threaded, so no mutex needed for basic operations.
  * Async signatures maintained for API compatibility with Python version.
  */
 class SchemaCache {
   private cache: Map<string, SchemaDefinition> = new Map();
+  private readonly MAX_SIZE = 1000; // Prevent unbounded memory growth
 
   /**
    * Get schema by ID.
+   * Promotes item to most recently used (LRU).
    */
   async get(schemaId: string): Promise<SchemaDefinition | undefined> {
-    return this.cache.get(schemaId);
+    const item = this.cache.get(schemaId);
+    if (item) {
+      // LRU Promotion: Delete and re-add to move to end of Map
+      this.cache.delete(schemaId);
+      this.cache.set(schemaId, item);
+      // Return a clone to prevent external mutation
+      return structuredClone(item);
+    }
+    return undefined;
   }
 
   /**
-   * Store schema in cache.
+   * Store schema in cache with LRU eviction.
    */
   async set(schemaId: string, schema: SchemaDefinition): Promise<void> {
+    // If cache is at max size and this is a new key, evict oldest non-pinned item
+    if (this.cache.size >= this.MAX_SIZE && !this.cache.has(schemaId)) {
+      let evicted = false;
+      // Map iterates in insertion order (oldest first)
+      for (const [key, val] of this.cache.entries()) {
+        if (!val.pinned) {
+          this.cache.delete(key);
+          logger.info(`Evicted schema to make space: ${key}`);
+          evicted = true;
+          break; // Only evict one
+        }
+      }
+
+      // Edge case: Cache full of only pinned items
+      if (!evicted) {
+        logger.warn(
+          'Cache full of pinned items! Forcing eviction of oldest pinned item'
+        );
+        const firstKey = this.cache.keys().next().value;
+        if (firstKey) {
+          this.cache.delete(firstKey);
+        }
+      }
+    }
+
     this.cache.set(schemaId, schema);
     logger.info(`Cached schema: ${schemaId}`);
   }
@@ -71,12 +106,16 @@ class SchemaCache {
 
   /**
    * Update usage statistics for a schema.
+   * Promotes item to most recently used (LRU).
    */
   async updateUsage(schemaId: string): Promise<void> {
     const schema = this.cache.get(schemaId);
     if (schema) {
       schema.use_count += 1;
       schema.last_used_at = new Date();
+      // LRU Promotion: Delete and re-add to move to end of Map
+      this.cache.delete(schemaId);
+      this.cache.set(schemaId, schema);
       logger.debug(
         `Updated usage for schema ${schemaId}: ${schema.use_count} uses`
       );

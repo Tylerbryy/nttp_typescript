@@ -3,9 +3,10 @@
  */
 
 import crypto from 'crypto';
-import type { Intent } from './types.js';
+import type { Intent, OperationType } from './types.js';
 import { IntentParseError, LLMError } from './errors.js';
 import type { LLMService } from './llm.js';
+import type { JsonObject, FilterConditions, SortSpec } from './utils.js';
 
 /**
  * JSON Schema for intent parsing (for structured outputs).
@@ -45,6 +46,18 @@ const INTENT_JSON_SCHEMA = {
   required: ['entity', 'operation'],
   additionalProperties: false,
 };
+
+/**
+ * Raw intent response from LLM before normalization.
+ */
+interface RawIntent {
+	entity: string;
+	operation: OperationType;
+	filters?: FilterConditions;
+	limit?: number | null;
+	fields?: string[] | null;
+	sort?: SortSpec | null;
+}
 
 /**
  * System prompt for intent parsing.
@@ -101,10 +114,10 @@ export class IntentParser {
       );
 
       // Call LLM to parse intent with structured outputs (guaranteed schema compliance)
-      const result = await this.llm.callStructured<any>(
+      const result = await this.llm.callStructured<RawIntent>(
         query,
         systemPrompt,
-        INTENT_JSON_SCHEMA,
+        INTENT_JSON_SCHEMA as JsonObject,
         0.0
       );
 
@@ -145,7 +158,7 @@ export class IntentParser {
    * @param intentData Intent dictionary from LLM
    * @returns Normalized string representation
    */
-  normalizeIntentDict(intentData: Record<string, any>): string {
+  normalizeIntentDict(intentData: RawIntent): string {
     // Extract key components
     const entity = (intentData.entity || '').toLowerCase().trim();
     const operation = (intentData.operation || '').toLowerCase().trim();

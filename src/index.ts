@@ -27,10 +27,11 @@ const fastify = Fastify({
 });
 
 /**
- * Register CORS plugin.
+ * Register CORS plugin with environment-aware configuration.
  */
 await fastify.register(cors, {
-  origin: '*',
+  origin: process.env.CORS_ORIGIN || (process.env.NODE_ENV === 'production' ? false : '*'),
+  credentials: true,
 });
 
 /**
@@ -61,7 +62,10 @@ await fastify.register(utilityRoutes);
 /**
  * Global error handler matching Python exception handlers.
  */
-fastify.setErrorHandler((error, _request, reply) => {
+fastify.setErrorHandler((error, request, reply) => {
+  // Always log the full error for debugging
+  request.log.error(error);
+
   if (error instanceof IntentParseError) {
     reply.status(400).send({
       error: 'IntentParseError',
@@ -109,7 +113,8 @@ fastify.addHook('onReady', async () => {
 
 fastify.addHook('onClose', async () => {
   logger.info('Shutting down NTTP API server...');
-  closeDb();
+  await closeDb();
+  logger.info('Database connections closed');
 });
 
 /**

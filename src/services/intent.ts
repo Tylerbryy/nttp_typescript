@@ -9,6 +9,7 @@ import { Intent } from '../types/models.js';
 import { IntentParseError, LLMError } from '../types/errors.js';
 import { getSchemaDescription } from './database.js';
 import { logger } from '../utils/logger.js';
+import { isSortSpec, type SortSpec } from '../types/utils.js';
 
 /**
  * Zod Schema for intent parsing (for structured outputs).
@@ -111,12 +112,35 @@ Output: {"entity": "products", "operation": "list", "filters": [{"field": "categ
 
 <example>
 Query: "find all orders above 100 dollars"
-Output: {"entity": "orders", "operation": "list", "filters": [{"field": "amount", "value": "100"}], "limit": null, "fields": null, "sort": null}
+Output: {"entity": "orders", "operation": "list", "filters": [{"field": "amount", "value": ">100"}], "limit": null, "fields": null, "sort": null}
+</example>
+
+<example>
+Query: "show products under 50 dollars"
+Output: {"entity": "products", "operation": "list", "filters": [{"field": "price", "value": "<50"}], "limit": null, "fields": null, "sort": null}
+</example>
+
+<example>
+Query: "find orders between 50 and 200 dollars"
+Output: {"entity": "orders", "operation": "list", "filters": [{"field": "total", "value": "50-200"}], "limit": null, "fields": null, "sort": null}
+</example>
+
+<example>
+Query: "show users with active or pending status"
+Output: {"entity": "users", "operation": "list", "filters": [{"field": "status", "value": "active,pending"}], "limit": null, "fields": null, "sort": null}
 </example>
 
 Special cases:
-- Multiple filters: Extract all conditions as separate field-value pairs
-- Comparative values (above/below/greater): Use numeric values without operators
+- Comparison operators: Include operator prefix in value
+  - "above/over/greater than X" → value: ">X"
+  - "below/under/less than X" → value: "<X"
+  - "at least X" → value: ">=X"
+  - "at most X" → value: "<=X"
+- Range queries: Use hyphen format
+  - "between X and Y" → value: "X-Y"
+- Multiple values: Use comma-separated format
+  - "A or B" → value: "A,B"
+  - "A and B" (same field) → value: "A,B"
 - Date references: Use ISO 8601 format (YYYY-MM-DD) when possible
 - Empty results: Return empty filters array [], not null
 - Ambiguous terms: Default to most common interpretation
@@ -148,10 +172,16 @@ export async function parseIntent(query: string): Promise<Intent> {
     );
 
     // Convert filters array to object format
+    // Handle duplicate fields by merging values with comma separation
     const filtersObject: Record<string, any> = {};
     if (result.filters && Array.isArray(result.filters)) {
       for (const filter of result.filters) {
-        filtersObject[filter.field] = filter.value;
+        if (Object.prototype.hasOwnProperty.call(filtersObject, filter.field)) {
+          // Duplicate field detected - merge values
+          filtersObject[filter.field] = `${filtersObject[filter.field]},${filter.value}`;
+        } else {
+          filtersObject[filter.field] = filter.value;
+        }
       }
     }
 
@@ -162,14 +192,25 @@ export async function parseIntent(query: string): Promise<Intent> {
     };
     const normalized = normalizeIntentDict(normalizedData);
 
+    // Validate and cast sort field if present
+    let sortField: SortSpec | undefined = undefined;
+    if (result.sort && typeof result.sort === 'string') {
+      if (!isSortSpec(result.sort)) {
+        throw new IntentParseError(
+          `Invalid sort format: ${result.sort}. Expected format: field:asc or field:desc`
+        );
+      }
+      sortField = result.sort;
+    }
+
     // Create Intent object
     const intent: Intent = {
       entity: result.entity,
       operation: result.operation,
       filters: filtersObject,
-      limit: result.limit ?? null,
-      fields: result.fields ?? null,
-      sort: result.sort ?? null,
+      limit: result.limit ?? undefined,
+      fields: result.fields ?? undefined,
+      sort: sortField,
       normalized_text: normalized,
     };
 
@@ -197,7 +238,12 @@ export async function parseIntent(query: string): Promise<Intent> {
  * @returns Normalized string representation
  */
 export function normalizeIntentDict(intentData: Record<string, any>): string {
-  // Extract key components
+  // Validate input
+  if (!intentData || typeof intentData !== 'object') {
+    throw new Error('Invalid intentData: must be a non-null object');
+  }
+
+  // Extract key components with safe defaults
   const entity = (intentData.entity || '').toLowerCase().trim();
   const operation = (intentData.operation || '').toLowerCase().trim();
   const filters = intentData.filters || {};
@@ -214,9 +260,9 @@ export function normalizeIntentDict(intentData: Record<string, any>): string {
     normalizedFilters[keyClean] = valueClean;
   }
 
-  // Sort filter keys for consistency
+  // Sort filter keys for consistency (using ASCII sort to match Python default)
   const sortedFilters = Object.entries(normalizedFilters).sort(
-    ([a], [b]) => a.localeCompare(b)
+    ([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)
   );
 
   // Build normalized representation
@@ -227,7 +273,8 @@ export function normalizeIntentDict(intentData: Record<string, any>): string {
     parts.push(`filters:${filtersStr}`);
   }
 
-  if (limit) {
+  // Check for null/undefined, not truthiness (0 is a valid limit)
+  if (limit !== null && limit !== undefined) {
     parts.push(`limit:${limit}`);
   }
 

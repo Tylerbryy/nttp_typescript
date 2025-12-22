@@ -1,6 +1,6 @@
 /**
  * Query execution, SQL generation, and schema inference.
- * Main orchestration pipeline for NTTP.
+ * Main orchestration pipeline for NTTP with 3-layer caching.
  */
 
 import { z } from 'zod';
@@ -22,6 +22,70 @@ import {
 } from '../types/errors.js';
 import { cache } from './schema-cache.js';
 import { parseIntent, generateSchemaId } from './intent.js';
+import { generateEmbedding, findSimilar } from './embedding.js';
+
+/**
+ * L2 Semantic Cache - In-memory store for query embeddings
+ */
+interface SemanticCacheEntry {
+  query: string;
+  embedding: number[];
+  schemaId: string;
+  sql: string;
+  params: any[];
+}
+
+const semanticCache: SemanticCacheEntry[] = [];
+const MAX_SEMANTIC_CACHE_SIZE = config.L2_CACHE_SIZE || 500;
+
+// Track L2 cache hits/misses for stats
+let l2CacheHits = 0;
+let l2CacheMisses = 0;
+
+/**
+ * Get L2 semantic cache statistics.
+ */
+export function getSemanticCacheStats() {
+  return {
+    size: semanticCache.length,
+    maxSize: MAX_SEMANTIC_CACHE_SIZE,
+    hits: l2CacheHits,
+    misses: l2CacheMisses,
+  };
+}
+
+/**
+ * Find similar query in semantic cache without allocating new array.
+ * Optimized to avoid GC pressure on hot path.
+ */
+function findSimilarInCache(
+  queryEmbedding: number[],
+  threshold: number
+): { similarity: number; entry: SemanticCacheEntry } | null {
+  let bestMatch: { similarity: number; entry: SemanticCacheEntry } | null = null;
+
+  for (const entry of semanticCache) {
+    // Inline cosine similarity calculation to avoid function call overhead
+    let dotProduct = 0;
+    let magnitudeA = 0;
+    let magnitudeB = 0;
+
+    for (let i = 0; i < queryEmbedding.length; i++) {
+      dotProduct += queryEmbedding[i] * entry.embedding[i];
+      magnitudeA += queryEmbedding[i] * queryEmbedding[i];
+      magnitudeB += entry.embedding[i] * entry.embedding[i];
+    }
+
+    const magnitude = Math.sqrt(magnitudeA) * Math.sqrt(magnitudeB);
+    const similarity = magnitude === 0 ? 0 : dotProduct / magnitude;
+
+    if (similarity >= threshold && (!bestMatch || similarity > bestMatch.similarity)) {
+      bestMatch = { similarity, entry };
+    }
+  }
+
+  return bestMatch;
+}
 
 /**
  * Zod Schema for SQL generation (for structured outputs).
@@ -80,8 +144,8 @@ Output: {"sql": "SELECT COUNT(*) as count FROM orders WHERE status = ?", "params
 </example>
 
 <example>
-Intent: {"entity": "products", "operation": "list", "filters": {"price": "100", "category": "electronics"}, "limit": 20, "fields": null, "sort": "price:desc"}
-Output: {"sql": "SELECT * FROM products WHERE price >= ? AND category = ? ORDER BY price DESC LIMIT ?", "params": ["100", "electronics", 20]}
+Intent: {"entity": "products", "operation": "list", "filters": {"price": ">100", "category": "electronics"}, "limit": 20, "fields": null, "sort": "price:desc"}
+Output: {"sql": "SELECT * FROM products WHERE price > ? AND category = ? ORDER BY price DESC LIMIT ?", "params": ["100", "electronics", 20]}
 </example>
 
 <example>
@@ -90,7 +154,7 @@ Output: {"sql": "SELECT email, name FROM users ORDER BY created_at DESC LIMIT ?"
 </example>
 
 <example>
-Intent: {"entity": "orders", "operation": "list", "filters": {"created_at": "2025-01-01"}, "limit": 100, "fields": null, "sort": null}
+Intent: {"entity": "orders", "operation": "list", "filters": {"created_at": ">=2025-01-01"}, "limit": 100, "fields": null, "sort": null}
 Output: {"sql": "SELECT * FROM orders WHERE created_at >= ? LIMIT ?", "params": ["2025-01-01", 100]}
 </example>
 
@@ -104,22 +168,58 @@ Intent: {"entity": "users", "operation": "count", "filters": {}, "limit": null, 
 Output: {"sql": "SELECT COUNT(*) as count FROM users", "params": []}
 </example>
 
-Operator inference rules:
-- Equality (=): Default for exact string matches
-- Comparison (>, >=, <, <=): Infer from numeric values and context
-- LIKE: Detect % or _ wildcards in value
-- IN: Detect comma-separated values (e.g., "active,pending")
-- IS NULL: Detect "null" or "none" values
+<example>
+Intent: {"entity": "products", "operation": "list", "filters": {"price": "<50"}, "limit": 100, "fields": null, "sort": null}
+Output: {"sql": "SELECT * FROM products WHERE price < ? LIMIT ?", "params": ["50", 100]}
+</example>
 
-Value type inference:
-- Numbers: No quotes, valid numeric format
-- Dates: ISO 8601 format (YYYY-MM-DD) - use >= for date comparisons
-- Strings: Everything else
+<example>
+Intent: {"entity": "orders", "operation": "list", "filters": {"total": "50-200"}, "limit": 100, "fields": null, "sort": null}
+Output: {"sql": "SELECT * FROM orders WHERE total BETWEEN ? AND ? LIMIT ?", "params": ["50", "200", 100]}
+</example>
+
+<example>
+Intent: {"entity": "users", "operation": "list", "filters": {"status": "active,pending"}, "limit": 100, "fields": null, "sort": null}
+Output: {"sql": "SELECT * FROM users WHERE status IN (?, ?) LIMIT ?", "params": ["active", "pending", 100]}
+</example>
+
+Operator and pattern detection rules:
+CRITICAL: Check for these patterns in filter values BEFORE defaulting to equality:
+
+1. Comparison operators (>, >=, <, <=):
+   - If value starts with >, >=, <, or <=, extract operator and use it
+   - Examples: ">100" → WHERE field > ?, "<50" → WHERE field < ?
+   - Strip operator from value before adding to params
+
+2. Range patterns (BETWEEN):
+   - If value contains hyphen (X-Y format), use BETWEEN
+   - Example: "50-200" → WHERE field BETWEEN ? AND ?
+   - Split on hyphen and add both values to params
+
+3. Multiple values (IN):
+   - If value contains comma, use IN operator
+   - Example: "active,pending" → WHERE field IN (?, ?)
+   - Split on comma and add each value to params
+
+4. Wildcards (LIKE):
+   - If value contains % or _ wildcards, use LIKE
+   - Example: "widget%" → WHERE field LIKE ?
+
+5. Equality (=):
+   - Default for simple string/number matches
+   - Example: "active" → WHERE field = ?
+
+Value extraction:
+- For operators (>, <, etc.): Strip operator prefix before adding to params
+- For ranges (X-Y): Split on hyphen, add both values to params
+- For lists (A,B,C): Split on comma, add each value to params
+- For others: Use value as-is
 
 Safety requirements:
 - NEVER use UPDATE, DELETE, DROP, ALTER, INSERT, CREATE, TRUNCATE, REPLACE
 - ALWAYS use parameterized queries (? placeholders)
 - ALWAYS include LIMIT for list operations (except count/aggregate)
+- ALWAYS check filter values for special patterns BEFORE defaulting to = operator
 `;
 
 /**
@@ -165,6 +265,14 @@ export async function generateSql(
     // Safety validation
     if (!validateSqlSafety(sql)) {
       throw new SQLGenerationError('Generated SQL failed safety validation');
+    }
+
+    // Validate parameter count matches placeholder count
+    const placeholderCount = (sql.match(/\?/g) || []).length;
+    if (params.length !== placeholderCount) {
+      throw new SQLGenerationError(
+        `Parameter mismatch: SQL has ${placeholderCount} placeholders but ${params.length} params`
+      );
     }
 
     logger.info(`Generated SQL: ${sql}`);
@@ -222,16 +330,12 @@ export function validateSqlSafety(sql: string): boolean {
     return false;
   }
 
-  // Should have a LIMIT clause (unless it's a count)
-  if (
-    !sqlUpper.includes('COUNT(*)') &&
-    !sqlUpper.includes('COUNT(*)')
-  ) {
-    if (!sqlUpper.includes('LIMIT')) {
-      logger.warn('SQL missing LIMIT clause');
-      // This is a warning, not a blocker - LLM might have added it via params
-      // return false;
-    }
+  // Should have a LIMIT clause (unless it's an aggregate query)
+  const isAggregate = /SELECT\s+(COUNT|SUM|AVG|MIN|MAX)\(/i.test(sqlUpper);
+  if (!isAggregate && !sqlUpper.includes('LIMIT')) {
+    logger.warn('SQL missing LIMIT clause');
+    // This is a warning, not a blocker - LLM might have added it via params
+    // return false;
   }
 
   return true;
@@ -266,10 +370,7 @@ export async function inferSchemaFromResults(
   const requiredFields: string[] = [];
 
   for (const [key, value] of Object.entries(sample)) {
-    const fieldType = inferFieldType(value);
-    properties[key] = {
-      type: fieldType,
-    };
+    properties[key] = inferFieldType(value);
     requiredFields.push(key);
   }
 
@@ -294,27 +395,28 @@ export async function inferSchemaFromResults(
  * Infer JSON schema type from JavaScript value.
  *
  * @param value JavaScript value
- * @returns JSON schema type string
+ * @returns JSON schema type string or object with format
  */
-export function inferFieldType(value: unknown): string {
-  if (value === null) {
-    return 'null';
+export function inferFieldType(value: unknown): any {
+  // Null values should be typed as nullable string (most permissive)
+  if (value === null || value === undefined) {
+    return { type: ['string', 'null'] };
   } else if (typeof value === 'boolean') {
-    return 'boolean';
+    return { type: 'boolean' };
   } else if (typeof value === 'number') {
-    return Number.isInteger(value) ? 'integer' : 'number';
+    return { type: Number.isInteger(value) ? 'integer' : 'number' };
   } else if (typeof value === 'string') {
     // Check if it looks like a date
-    if (/\d{4}-\d{2}-\d{2}/.test(value)) {
-      return 'string'; // Could add format: "date-time"
+    if (/^\d{4}-\d{2}-\d{2}/.test(value)) {
+      return { type: 'string', format: 'date' };
     }
-    return 'string';
+    return { type: 'string' };
   } else if (Array.isArray(value)) {
-    return 'array';
+    return { type: 'array' };
   } else if (typeof value === 'object') {
-    return 'object';
+    return { type: 'object' };
   } else {
-    return 'string';
+    return { type: 'string' };
   }
 }
 
@@ -341,58 +443,133 @@ export async function executeQueryWithCache(
   const startTime = Date.now();
 
   try {
-    // Step 1: Parse intent from natural language
+    // Parse intent from natural language
     logger.info(`Parsing query: ${request.query}`);
     const intent = await parseIntent(request.query);
     const schemaId = generateSchemaId(intent);
 
-    // Step 2: Check cache for schema
-    let cachedSchema: SchemaDefinition | undefined;
+    // ─────────────────────────────────────────────────────────
+    // L1: EXACT MATCH (hash-based schema cache)
+    // Cost: $0.00 | Latency: <1ms
+    // ─────────────────────────────────────────────────────────
     if (request.use_cache && !request.force_new_schema) {
-      cachedSchema = await cache.get(schemaId);
+      const cachedSchema = await cache.get(schemaId);
+
+      if (cachedSchema) {
+        logger.info(`L1 Cache HIT for schema: ${schemaId}`);
+
+        // Execute query using cached SQL
+        const results = await executeQuery(cachedSchema.sql, cachedSchema.params);
+
+        // Update cache usage stats
+        await cache.updateUsage(schemaId);
+        await cache.addExampleQuery(schemaId, request.query);
+
+        const executionTimeMs = Date.now() - startTime;
+
+        return {
+          data: results,
+          schema_id: schemaId,
+          cache_hit: true,
+          execution_time_ms: executionTimeMs,
+          generated_sql: cachedSchema.sql,
+          intent: intent.normalized_text,
+          meta: {
+            cacheLayer: 1,
+            cost: 0,
+            latency: executionTimeMs,
+          },
+        };
+      }
     }
 
-    if (cachedSchema) {
-      // CACHE HIT - Use cached schema
-      logger.info(`Cache HIT for schema: ${schemaId}`);
+    // ─────────────────────────────────────────────────────────
+    // L2: SEMANTIC MATCH (embedding-based similarity)
+    // Cost: ~$0.0001 | Latency: 50-100ms
+    // ─────────────────────────────────────────────────────────
+    let queryEmbedding: number[] | undefined;
 
-      // Generate SQL from intent
-      const sqlResult = await generateSql(intent);
+    if (request.use_cache && !request.force_new_schema && semanticCache.length > 0) {
+      logger.info('Checking L2 semantic cache...');
 
-      // Execute query
-      let results: Record<string, any>[];
-      try {
-        results = await executeQuery(sqlResult.sql, sqlResult.params);
-      } catch (error) {
-        logger.error(`SQL execution failed: ${error}`);
-        throw new SQLExecutionError(`Query execution failed: ${error}`);
+      // Generate embedding for query
+      queryEmbedding = await generateEmbedding(request.query);
+
+      // FIX 2: Search without allocating new array (zero GC pressure)
+      const threshold = config.SIMILARITY_THRESHOLD || 0.85;
+      const match = findSimilarInCache(queryEmbedding, threshold);
+
+      if (match) {
+        l2CacheHits++;
+        logger.info(
+          `L2 Cache HIT with similarity ${match.similarity.toFixed(3)} for query: "${match.entry.query}"`
+        );
+
+        // FIX 1: LRU Promotion - Move hit entry to end (most recently used)
+        const hitIndex = semanticCache.findIndex((e) => e === match.entry);
+        if (hitIndex > -1) {
+          semanticCache.splice(hitIndex, 1);
+          semanticCache.push(match.entry);
+        }
+
+        // Execute query using semantically matched SQL
+        const results = await executeQuery(match.entry.sql, match.entry.params);
+
+        // FIX 3: L1 Resurrection - Repopulate L1 if it was evicted
+        const cachedSchema = await cache.get(match.entry.schemaId);
+        if (cachedSchema) {
+          await cache.updateUsage(match.entry.schemaId);
+          await cache.addExampleQuery(match.entry.schemaId, request.query);
+        } else {
+          // L1 was evicted but L2 still has it - resurrect into L1
+          logger.info(`Resurrecting schema ${match.entry.schemaId} into L1 from L2 hit`);
+          await cache.set(match.entry.schemaId, {
+            schema_id: match.entry.schemaId,
+            intent_pattern: intent.normalized_text,
+            json_schema: {}, // Minimal resurrection - schema not critical for execution
+            sql: match.entry.sql,
+            params: match.entry.params,
+            pinned: false,
+            created_at: new Date(),
+            last_used_at: new Date(),
+            use_count: 1,
+            example_queries: [request.query],
+          });
+        }
+
+        const executionTimeMs = Date.now() - startTime;
+
+        return {
+          data: results,
+          schema_id: match.entry.schemaId,
+          cache_hit: true,
+          execution_time_ms: executionTimeMs,
+          generated_sql: match.entry.sql,
+          intent: intent.normalized_text,
+          meta: {
+            cacheLayer: 2,
+            cost: 0.0001, // Embedding generation cost
+            latency: executionTimeMs,
+            similarity: match.similarity,
+          },
+        };
       }
 
-      // Update cache usage stats
-      await cache.updateUsage(schemaId);
-      await cache.addExampleQuery(schemaId, request.query);
+      l2CacheMisses++;
+      logger.info('L2 Cache MISS - proceeding to L3');
+    }
 
-      // Calculate execution time
-      const executionTimeMs = Date.now() - startTime;
+    // ─────────────────────────────────────────────────────────
+    // L3: LLM FALLBACK (full pipeline)
+    // Cost: ~$0.01 | Latency: 2-3s
+    // ─────────────────────────────────────────────────────────
+    logger.info(`L3 Fallback - generating SQL for schema: ${schemaId}`);
 
-      // Return response
-      return {
-        data: results,
-        schema_id: schemaId,
-        cache_hit: true,
-        execution_time_ms: executionTimeMs,
-        generated_sql: sqlResult.sql,
-        intent: intent.normalized_text,
-      };
-    } else {
-      // CACHE MISS - Full pipeline
-      logger.info(`Cache MISS for schema: ${schemaId}`);
+    // Generate SQL from intent
+    const sqlResult = await generateSql(intent);
 
-      // Generate SQL from intent
-      const sqlResult = await generateSql(intent);
-
-      // Execute query
-      let results: Record<string, any>[];
+    // Execute query
+    let results: Record<string, any>[];
       try {
         results = await executeQuery(sqlResult.sql, sqlResult.params);
       } catch (error) {
@@ -403,11 +580,13 @@ export async function executeQueryWithCache(
       // Infer schema from results
       const jsonSchema = await inferSchemaFromResults(results);
 
-      // Create and store schema definition
+      // Store in L1 cache (exact match)
       const schemaDef: SchemaDefinition = {
         schema_id: schemaId,
         intent_pattern: intent.normalized_text,
         json_schema: jsonSchema,
+        sql: sqlResult.sql,
+        params: sqlResult.params,
         pinned: false,
         created_at: new Date(),
         last_used_at: new Date(),
@@ -416,10 +595,32 @@ export async function executeQueryWithCache(
       };
       await cache.set(schemaId, schemaDef);
 
+      // Store in L2 semantic cache with embedding (reuse if already generated)
+      if (!queryEmbedding) {
+        queryEmbedding = await generateEmbedding(request.query);
+      }
+
+      // Add to semantic cache with LRU eviction
+      if (semanticCache.length >= MAX_SEMANTIC_CACHE_SIZE) {
+        semanticCache.shift(); // Remove oldest entry
+      }
+
+      semanticCache.push({
+        query: request.query,
+        embedding: queryEmbedding,
+        schemaId: schemaId,
+        sql: sqlResult.sql,
+        params: sqlResult.params,
+      });
+
+      logger.info(
+        `Populated L1 and L2 caches. L2 cache size: ${semanticCache.length}/${MAX_SEMANTIC_CACHE_SIZE}`
+      );
+
       // Calculate execution time
       const executionTimeMs = Date.now() - startTime;
 
-      // Return response
+      // Return response with L3 fallback metadata
       return {
         data: results,
         schema_id: schemaId,
@@ -427,8 +628,12 @@ export async function executeQueryWithCache(
         execution_time_ms: executionTimeMs,
         generated_sql: sqlResult.sql,
         intent: intent.normalized_text,
+        meta: {
+          cacheLayer: 3, // L3 LLM fallback (full pipeline)
+          cost: 0.01, // Estimated cost for intent parsing + SQL generation
+          latency: executionTimeMs,
+        },
       };
-    }
   } catch (error) {
     // Log error and re-raise
     logger.error(`Query execution failed: ${error}`);

@@ -2,6 +2,8 @@
  * Types for nttp caching system
  */
 
+import type { JsonValue } from '../utils.js';
+
 /**
  * Cached query result with metadata
  */
@@ -9,36 +11,37 @@ export interface CachedResult {
   /**
    * Schema ID for this query pattern
    */
-  schemaId: string;
+  readonly schemaId: string;
 
   /**
    * Generated SQL query
    */
-  sql: string;
+  readonly sql: string;
 
   /**
    * SQL query parameters
    */
-  params: any[];
+  readonly params: JsonValue[];
 
   /**
-   * Number of times this cache entry was hit
+   * Number of times this cache entry was hit (mutable)
    */
   hitCount: number;
 
   /**
    * When this cache entry was created
    */
-  createdAt: Date;
+  readonly createdAt: Date;
 
   /**
-   * When this cache entry was last used
+   * When this cache entry was last used (mutable)
    */
   lastUsedAt: Date;
 }
 
 /**
  * Semantic match result from L2 cache
+ * Note: Embedding is returned separately from find() to prevent double API billing
  */
 export interface SemanticMatch {
   /**
@@ -55,11 +58,6 @@ export interface SemanticMatch {
    * Original query that was cached
    */
   originalQuery: string;
-
-  /**
-   * Embedding vector (saved for reuse)
-   */
-  embedding: number[];
 }
 
 /**
