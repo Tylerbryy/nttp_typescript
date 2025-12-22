@@ -91,8 +91,8 @@ const db = new NTTP({
 await db.init();
 
 const users = await db.query("active users from California");
-const orders = await db.query("orders over $500 this month");
-const stats = await db.query("total revenue by category");
+const orders = await db.query("pending orders over $500");
+const products = await db.query("top 10 products by price");
 ```
 
 ### Option 3: Fastify Plugin
@@ -130,25 +130,40 @@ await app.listen({ port: 8000 });
 
 ## Example Queries
 
-```typescript
-// Simple
-await db.query("get all users");
-await db.query("show products");
+Based on the sample e-commerce database (users, products, orders, order_items, reviews, categories):
 
-// Filtered
+```typescript
+// Simple queries (single table)
+await db.query("show me all users");
+await db.query("get all products");
+await db.query("list recent orders");
+
+// Filtered queries
 await db.query("active users from California");
 await db.query("products under $50");
-await db.query("orders from last week");
+await db.query("orders from last 30 days");
+await db.query("pending orders");
+await db.query("products in Electronics category");
 
-// Aggregations
+// Sorting and limits
+await db.query("top 10 most expensive products");
+await db.query("newest 20 users");
+await db.query("5 most recent orders");
+
+// Reviews and ratings
+await db.query("5-star reviews");
+await db.query("reviews with ratings above 4");
+await db.query("products with reviews");
+
+// Aggregations (single table)
 await db.query("count users by status");
-await db.query("total revenue by month");
-await db.query("average order value");
+await db.query("count products by category");
+await db.query("count orders by status");
 
-// Complex
-await db.query("top 10 customers by lifetime value");
-await db.query("products with 4+ stars under $100");
-await db.query("users who ordered but never reviewed");
+// Note: Complex multi-table aggregations (joins, grouping)
+// work best when explicitly mentioning table relationships:
+await db.query("show users with their order count");
+await db.query("products with their average rating");
 ```
 
 ---

@@ -697,11 +697,12 @@ async function createRichDatabase(path: string, size: 'full' | 'small'): Promise
     logger.newline();
     logger.info('Sample queries to try:');
     logger.code(
-      `"top 10 customers by total spend"\n` +
-        `"products with 4+ star ratings under $100"\n` +
-        `"orders from California in the last 30 days"\n` +
-        `"most reviewed products in Electronics"\n` +
-        `"pending orders over $500"`,
+      `"show me all users"\n` +
+        `"active users from California"\n` +
+        `"products under $100"\n` +
+        `"pending orders over $500"\n` +
+        `"5-star reviews"\n` +
+        `"top 10 most expensive products"`,
       'natural language'
     );
   } catch (error: any) {
