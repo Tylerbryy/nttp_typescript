@@ -12,6 +12,8 @@ import {
 } from './errors.js';
 import type { LLMService } from './llm.js';
 import type { SchemaCache } from './cache.js';
+import type { ExactCache, SemanticCache } from './cache/index.js';
+import type { CachedResult } from './cache/types.js';
 
 /**
  * JSON Schema for SQL generation (for structured outputs).
@@ -79,6 +81,12 @@ export interface ExecuteResult {
   intent: Intent;
   sql?: string;
   params?: any[];
+  meta?: {
+    cacheLayer: 1 | 2 | 3;
+    cost: number;
+    latency: number;
+    similarity?: number;
+  };
 }
 
 /**
@@ -90,13 +98,148 @@ export class QueryExecutor {
   constructor(
     private db: Knex,
     private llm: LLMService,
-    private cache: SchemaCache
+    private cache: SchemaCache,
+    private l1Cache?: ExactCache,
+    private l2Cache?: SemanticCache
   ) {}
 
   /**
-   * Execute query with caching.
+   * Execute query with v2 3-layer caching.
    */
   async execute(options: ExecuteOptions): Promise<ExecuteResult> {
+    const startTime = Date.now();
+    const { query, intent, useCache, forceNewSchema } = options;
+
+    // If v2 not enabled, fall back to v1 behavior
+    if (!this.l1Cache && !this.l2Cache) {
+      return this.executeV1(options);
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // L1: EXACT MATCH (hash-based cache)
+    // Cost: $0.00 | Latency: <1ms
+    // ─────────────────────────────────────────────────────────
+    if (this.l1Cache && useCache && !forceNewSchema) {
+      const l1Hit = this.l1Cache.get(query);
+      if (l1Hit) {
+        const data = await this.executeRaw(l1Hit.sql, l1Hit.params);
+        return {
+          query,
+          data,
+          schemaId: l1Hit.schemaId,
+          cacheHit: true,
+          intent,
+          sql: l1Hit.sql,
+          params: l1Hit.params,
+          meta: {
+            cacheLayer: 1,
+            cost: 0,
+            latency: Date.now() - startTime,
+          },
+        };
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // L2: SEMANTIC MATCH (embedding-based similarity)
+    // Cost: ~$0.0001 | Latency: 50-100ms
+    // ─────────────────────────────────────────────────────────
+    if (this.l2Cache && useCache && !forceNewSchema) {
+      const l2Match = await this.l2Cache.find(query);
+
+      if (l2Match) {
+        const data = await this.executeRaw(
+          l2Match.result.sql,
+          l2Match.result.params
+        );
+
+        // Promote to L1 for future exact matches
+        if (this.l1Cache) {
+          this.l1Cache.set(query, l2Match.result);
+        }
+
+        return {
+          query,
+          data,
+          schemaId: l2Match.result.schemaId,
+          cacheHit: true,
+          intent,
+          sql: l2Match.result.sql,
+          params: l2Match.result.params,
+          meta: {
+            cacheLayer: 2,
+            cost: 0.0001,
+            latency: Date.now() - startTime,
+            similarity: l2Match.similarity,
+          },
+        };
+      }
+      // If L2 miss, we don't save the embedding (it will be regenerated in L3)
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // L3: LLM FALLBACK (full pipeline)
+    // Cost: ~$0.01 | Latency: 2-3s
+    // ─────────────────────────────────────────────────────────
+    const schemaId = this.generateSchemaId(intent);
+    const { sql, params } = await this.generateSql(intent);
+    const data = await this.executeRaw(sql, params);
+
+    const result: CachedResult = {
+      schemaId,
+      sql,
+      params,
+      hitCount: 1,
+      createdAt: new Date(),
+      lastUsedAt: new Date(),
+    };
+
+    // Populate both L1 and L2 caches
+    if (this.l1Cache) {
+      this.l1Cache.set(query, result);
+    }
+
+    if (this.l2Cache) {
+      // Generate and cache embedding
+      await this.l2Cache.add(query, result);
+    }
+
+    // Also populate v1 schema cache (for backward compat)
+    const resultSchema = this.inferSchemaFromResults(data);
+    const schemaDefinition: SchemaDefinition = {
+      schema_id: schemaId,
+      intent_pattern: intent.normalized_text,
+      generated_sql: sql,
+      sql_params: params,
+      result_schema: resultSchema,
+      use_count: 1,
+      created_at: new Date(),
+      last_used_at: new Date(),
+      example_queries: [query],
+      pinned: false,
+    };
+    await this.cache.set(schemaId, schemaDefinition);
+
+    return {
+      query,
+      data,
+      schemaId,
+      cacheHit: false,
+      intent,
+      sql,
+      params,
+      meta: {
+        cacheLayer: 3,
+        cost: 0.01,
+        latency: Date.now() - startTime,
+      },
+    };
+  }
+
+  /**
+   * Execute query with v1 caching (legacy).
+   */
+  async executeV1(options: ExecuteOptions): Promise<ExecuteResult> {
     const { query, intent, useCache, forceNewSchema } = options;
 
     // Generate schema ID from intent

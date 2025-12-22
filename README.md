@@ -1,33 +1,58 @@
-# NTTP - Natural Text Transfer Protocol
+# nttp
 
-> Query databases with natural language using Claude AI
+**natural text to query**
+
+Ask your database questions in plain English.
 
 [![npm version](https://img.shields.io/npm/v/nttp.svg)](https://www.npmjs.com/package/nttp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
-NTTP is a protocol and ecosystem for querying SQL databases using natural language, powered by Claude AI and Knex.js.
+```bash
+nttp "show me active users from last week"
+```
 
-## ✨ Features
+```json
+{
+  "data": [{ "id": 1, "email": "user@example.com", "status": "active" }],
+  "meta": { "cacheLayer": 2, "latencyMs": 82, "cost": 0.0001 }
+}
+```
 
-- 🗣️ **Natural Language Queries** - "get all active users", "products under $50"
-- 🗄️ **Multi-Database Support** - PostgreSQL, MySQL, SQLite, SQL Server
-- ⚡ **Lightning Fast** - Sub-50ms cached queries, schema caching
-- 🛡️ **Type-Safe** - Full TypeScript support
-- 🎯 **Production Ready** - Battle-tested Knex.js + Claude AI
-- 📦 **Multiple Use Cases** - Library, API server, or Fastify plugin
-- 🔄 **Smart Caching** - Automatic schema inference and caching
+---
 
-## 📦 Packages
+## Why nttp?
 
-| Package | Description | Version |
-|---------|-------------|---------|
-| [`nttp`](./packages/nttp) | Core library | [![npm](https://img.shields.io/npm/v/nttp)](https://npmjs.com/package/nttp) |
-| [`create-nttp`](./packages/create-nttp) | Project scaffolding | [![npm](https://img.shields.io/npm/v/create-nttp)](https://npmjs.com/package/create-nttp) |
-| [`@nttp/fastify`](./packages/fastify-nttp) | Fastify plugin | [![npm](https://img.shields.io/npm/v/@nttp/fastify)](https://npmjs.com/package/@nttp/fastify) |
+Every "LLM + SQL" tool calls the LLM for every query. That's **$0.01 and 2-3 seconds per request**.
 
-## 🚀 Quick Start
+nttp uses **semantic caching**. Similar questions reuse cached results:
 
-### Option 1: Create New Project (Fastest)
+```
+"show me active users"  →  LLM         →  $0.01, 2s
+"show me active users"  →  Exact hit   →  $0, <1ms
+"get active users"      →  Semantic hit →  $0.0001, 80ms
+```
+
+**90% cost reduction after warmup.**
+
+---
+
+## How It Works
+
+3-layer cache. Queries cascade through increasingly expensive layers:
+
+```
+L1: EXACT       Hash match         $0        <1ms
+L2: SEMANTIC    Embedding match    $0.0001   80ms
+L3: LLM         Claude API         $0.01     2-3s
+```
+
+Most queries hit L1 or L2. Only novel queries reach the LLM.
+
+---
+
+## Quick Start
+
+### Option 1: CLI
 
 ```bash
 npx create-nttp my-api
@@ -35,227 +60,242 @@ cd my-api
 npm run dev
 ```
 
-### Option 2: Use as Library
+### Option 2: Library
 
 ```bash
-npm install nttp pg  # or mysql2, better-sqlite3, mssql
+npm install nttp
 ```
 
 ```typescript
-import { NTTP } from 'nttp';
+import { nttp } from 'nttp';
 
-const nttp = new NTTP({
-  database: {
-    client: 'pg',
-    connection: process.env.DATABASE_URL
-  },
-  anthropic: {
-    apiKey: process.env.ANTHROPIC_API_KEY
-  }
+const db = nttp({
+  database: process.env.DATABASE_URL,
+  anthropic: process.env.ANTHROPIC_API_KEY,
+  openai: process.env.OPENAI_API_KEY,  // for embeddings
 });
 
-await nttp.init();
-
-const users = await nttp.query("get all active users");
-console.log(users.data);
+const users = await db.query("active users from California");
+const orders = await db.query("orders over $500 this month");
+const stats = await db.query("total revenue by category");
 ```
 
 ### Option 3: Fastify Plugin
 
-```bash
-npm install fastify @nttp/fastify nttp pg
-```
-
 ```typescript
 import Fastify from 'fastify';
-import nttpPlugin from '@nttp/fastify';
+import { nttpPlugin } from 'nttp/fastify';
 
-const fastify = Fastify();
+const app = Fastify();
 
-await fastify.register(nttpPlugin, {
-  database: { client: 'pg', connection: process.env.DATABASE_URL },
-  anthropic: { apiKey: process.env.ANTHROPIC_API_KEY }
+await app.register(nttpPlugin, {
+  database: process.env.DATABASE_URL,
+  anthropic: process.env.ANTHROPIC_API_KEY,
+  openai: process.env.OPENAI_API_KEY,
 });
 
-await fastify.listen({ port: 3000 });
-// POST http://localhost:3000/nttp/query
+await app.listen({ port: 8000 });
+// POST /query { "query": "active users" }
 ```
-
-## 💡 Example Queries
-
-```typescript
-// Simple queries
-await nttp.query("get all users");
-await nttp.query("show products");
-await nttp.query("list pending orders");
-
-// Filtered queries
-await nttp.query("active users from California");
-await nttp.query("products in Electronics category");
-await nttp.query("orders over $500");
-
-// Top N queries
-await nttp.query("top 10 products by price");
-await nttp.query("5 most recent orders");
-
-// Aggregations
-await nttp.query("count all users");
-await nttp.query("total revenue by category");
-await nttp.query("average order value");
-
-// Complex conditions
-await nttp.query("products with 4+ star rating under $100");
-await nttp.query("users who joined this month");
-await nttp.query("orders from New York in December");
-```
-
-## 🏗️ Architecture
-
-```
-┌─────────────┐
-│   User      │
-│  "get all   │
-│   users"    │
-└──────┬──────┘
-       │
-       ▼
-┌─────────────────────┐
-│  NTTP               │
-│  1. Parse Intent    │
-│  2. Check Cache     │
-│  3. Generate SQL    │
-│  4. Execute Query   │
-│  5. Cache Schema    │
-└──────┬──────────────┘
-       │
-       ▼
-┌─────────────────────┐
-│  Database (Knex.js) │
-│  - PostgreSQL       │
-│  - MySQL            │
-│  - SQLite           │
-│  - SQL Server       │
-└─────────────────────┘
-```
-
-## 🎯 Use Cases
-
-### 1. Standalone API Server
-
-Perfect for:
-- Internal tools and dashboards
-- Analytics APIs
-- Admin panels
-- Rapid prototyping
-
-```bash
-npx create-nttp analytics-api
-# Choose: Standalone API
-```
-
-### 2. Embedded in Existing App
-
-Perfect for:
-- Adding NL query to existing Node.js apps
-- Serverless functions
-- CLI tools
-- Data scripts
-
-```typescript
-import { NTTP } from 'nttp';
-// Use anywhere in your app
-```
-
-### 3. Fastify Plugin
-
-Perfect for:
-- Extending existing Fastify apps
-- Microservices
-- Multi-database routing
-
-```typescript
-await fastify.register(nttpPlugin, {...});
-```
-
-## 📊 Performance
-
-| Scenario | Response Time | Throughput |
-|----------|---------------|------------|
-| Cache Hit | <50ms | >10,000 req/s |
-| Cache Miss | ~2-3s | Limited by LLM |
-| Concurrent | <100ms | ~1,000 req/s |
-
-## 🗄️ Database Support
-
-NTTP works with any SQL database supported by Knex.js:
-
-| Database | Client | Status |
-|----------|--------|--------|
-| PostgreSQL | `pg` | ✅ Production Ready |
-| MySQL | `mysql2` | ✅ Production Ready |
-| SQLite | `better-sqlite3` | ✅ Development/Testing |
-| SQL Server | `mssql` | ✅ Production Ready |
-
-## 🔒 Security
-
-- ✅ **Read-Only by Default** - Blocks INSERT, UPDATE, DELETE, DROP
-- ✅ **Parameterized Queries** - SQL injection protection via Knex
-- ✅ **Schema Validation** - Input validation with Zod
-- ✅ **Rate Limiting** - Recommended for production APIs
-
-## 📚 Documentation
-
-- [Core Library (`nttp`)](./packages/nttp/README.md)
-- [Project Generator (`create-nttp`)](./packages/create-nttp/README.md)
-- [Fastify Plugin (`@nttp/fastify`)](./packages/fastify-nttp/README.md)
-- [Examples](./examples/)
-
-## 🛠️ Development
-
-```bash
-# Install dependencies
-npm install
-
-# Build all packages
-npm run build
-
-# Run tests
-npm test
-
-# Clean build artifacts
-npm run clean
-```
-
-## 🚢 Publishing
-
-```bash
-# Build and publish all packages
-npm run publish:all
-```
-
-## 🤝 Contributing
-
-Contributions welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) first.
-
-## 📝 License
-
-MIT © [Your Name]
-
-## 🙏 Credits
-
-Built with:
-- [Claude AI](https://anthropic.com) - Natural language processing
-- [Knex.js](https://knexjs.org) - SQL query builder
-- [Fastify](https://fastify.dev) - Fast web framework
-- [TypeScript](https://typescriptlang.org) - Type safety
-
-## 🔗 Links
-
-- [npm Registry](https://npmjs.com/package/nttp)
-- [GitHub](https://github.com/your-org/nttp)
-- [Documentation](https://nttp.dev)
-- [Discord Community](https://discord.gg/nttp)
 
 ---
 
-**Made with ❤️ for developers who love natural language**
+## Example Queries
+
+```typescript
+// Simple
+await db.query("get all users");
+await db.query("show products");
+
+// Filtered
+await db.query("active users from California");
+await db.query("products under $50");
+await db.query("orders from last week");
+
+// Aggregations
+await db.query("count users by status");
+await db.query("total revenue by month");
+await db.query("average order value");
+
+// Complex
+await db.query("top 10 customers by lifetime value");
+await db.query("products with 4+ stars under $100");
+await db.query("users who ordered but never reviewed");
+```
+
+---
+
+## Architecture
+
+![nttp architecture](public/figure1.jpeg)
+
+---
+
+## API
+
+### POST /query
+
+```bash
+curl -X POST http://localhost:8000/query \
+  -H "Content-Type: application/json" \
+  -d '{"query": "active users"}'
+```
+
+```json
+{
+  "data": [
+    { "id": 1, "email": "user@example.com", "status": "active" }
+  ],
+  "meta": {
+    "sql": "SELECT * FROM users WHERE status = $1",
+    "cacheLayer": 2,
+    "latencyMs": 82,
+    "cost": 0.0001,
+    "similarity": 0.94
+  }
+}
+```
+
+### GET /stats
+
+```json
+{
+  "cache": { "l1": 156, "l2": 89 },
+  "hitRates": { "l1": 0.62, "l2": 0.31, "l3": 0.07 },
+  "queries": 1247,
+  "costSaved": 11.22
+}
+```
+
+---
+
+## Performance
+
+| Layer | Latency | Cost | When |
+|-------|---------|------|------|
+| L1: Exact | <1ms | $0 | Same query |
+| L2: Semantic | 80ms | $0.0001 | Similar query |
+| L3: LLM | 2-3s | $0.01 | Novel query |
+
+After warmup: **90%+ queries hit L1/L2**.
+
+---
+
+## Configuration
+
+```typescript
+nttp({
+  // Database (required)
+  database: 'postgresql://...',  // or connection object
+  
+  // LLM for intent parsing (required)
+  anthropic: 'sk-ant-...',
+  
+  // Embeddings for semantic cache (required)
+  openai: 'sk-...',  // or cohere, mistral, google
+  
+  // Options
+  similarity: 0.92,  // L2 threshold (default: 0.92)
+  readonly: true,    // Block writes (default: true)
+});
+```
+
+### Embedding Providers
+
+```typescript
+// OpenAI (default)
+openai: 'sk-...'
+
+// Cohere
+cohere: 'co-...'
+
+// Mistral  
+mistral: 'ms-...'
+
+// Google
+google: 'goog-...'
+```
+
+---
+
+## Database Support
+
+| Database | Package | Status |
+|----------|---------|--------|
+| PostgreSQL | `pg` | ✅ |
+| SQLite | `better-sqlite3` | ✅ |
+| MySQL | `mysql2` | ✅ |
+| SQL Server | `mssql` | ✅ |
+
+---
+
+## Security
+
+- **Read-only by default** — Blocks INSERT, UPDATE, DELETE, DROP
+- **Parameterized queries** — SQL injection protection via Knex
+- **Input validation** — Zod schemas on all endpoints
+
+---
+
+## CLI
+
+```bash
+nttp setup      # Interactive config
+nttp dev        # Dev server with hot reload
+nttp start      # Production server
+nttp stats      # Cache statistics
+nttp doctor     # Diagnose issues
+```
+
+---
+
+## Use Cases
+
+| Use Case | Fit |
+|----------|-----|
+| Internal dashboards | ✅ |
+| Admin tools | ✅ |
+| Prototypes | ✅ |
+| AI agents | ✅ |
+| High-throughput APIs | ❌ |
+| Public APIs | ❌ |
+
+---
+
+## Packages
+
+| Package | Description |
+|---------|-------------|
+| `nttp` | Core library |
+| `create-nttp` | Project scaffolding |
+| `nttp/fastify` | Fastify plugin |
+
+---
+
+## Development
+
+```bash
+git clone https://github.com/your-org/nttp
+cd nttp
+npm install
+npm run dev
+```
+
+---
+
+## Credits
+
+- [Claude](https://anthropic.com) — LLM
+- [AI SDK](https://sdk.vercel.ai) — Embeddings
+- [Knex.js](https://knexjs.org) — SQL
+- [Fastify](https://fastify.dev) — HTTP
+
+---
+
+## License
+
+MIT
+
+---
+
+**natural text to query**

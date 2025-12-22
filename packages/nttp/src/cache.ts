@@ -1,10 +1,20 @@
 /**
- * In-memory schema cache for NTTP.
+ * In-memory schema cache for nttp.
  * Provides async-safe operations for storing and retrieving schemas.
  */
 
-import type { SchemaDefinition, CacheStats } from './types.js';
+import type { SchemaDefinition } from './types.js';
 import { CacheError } from './errors.js';
+
+/**
+ * Schema cache statistics
+ */
+export interface SchemaStats {
+  total_schemas: number;
+  pinned_schemas: number;
+  total_uses: number;
+  average_uses: number;
+}
 
 /**
  * In-memory cache for schema definitions.
@@ -133,7 +143,7 @@ export class SchemaCache {
   /**
    * Get cache statistics.
    */
-  async getStats(): Promise<CacheStats> {
+  async getStats(): Promise<SchemaStats> {
     const schemas = Array.from(this.cache.values());
     const total = schemas.length;
     const pinned = schemas.filter((s) => s.pinned).length;

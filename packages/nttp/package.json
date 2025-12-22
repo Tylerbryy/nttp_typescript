@@ -1,7 +1,7 @@
 {
   "name": "nttp",
   "version": "1.0.0",
-  "description": "Query databases with natural language using Claude AI",
+  "description": "natural text to query - Query databases with natural language",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -34,17 +34,22 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.30.1",
     "knex": "^3.1.0",
     "knex-schema-inspector": "^3.1.0",
     "zod": "^3.23.8",
-    "zod-to-json-schema": "^3.23.0"
+    "zod-to-json-schema": "^3.23.0",
+    "ai": "^4.0.0",
+    "@ai-sdk/openai": "^1.0.0"
   },
   "peerDependencies": {
     "better-sqlite3": "^9.6.0",
     "pg": "^8.13.1",
     "mysql2": "^3.11.5",
-    "mssql": "^11.0.1"
+    "mssql": "^11.0.1",
+    "@ai-sdk/anthropic": "^1.0.0",
+    "@ai-sdk/cohere": "^1.0.0",
+    "@ai-sdk/mistral": "^1.0.0",
+    "@ai-sdk/google-vertex": "^1.0.0"
   },
   "peerDependenciesMeta": {
     "better-sqlite3": {
@@ -57,6 +62,18 @@
       "optional": true
     },
     "mssql": {
+      "optional": true
+    },
+    "@ai-sdk/anthropic": {
+      "optional": true
+    },
+    "@ai-sdk/cohere": {
+      "optional": true
+    },
+    "@ai-sdk/mistral": {
+      "optional": true
+    },
+    "@ai-sdk/google-vertex": {
       "optional": true
     }
   },

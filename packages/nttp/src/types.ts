@@ -1,11 +1,11 @@
 /**
- * TypeScript types for NTTP
+ * TypeScript types for nttp
  */
 
 import type { Knex } from 'knex';
 
 /**
- * NTTP configuration
+ * nttp configuration
  */
 export interface NTTPConfig {
   /**
@@ -14,19 +14,26 @@ export interface NTTPConfig {
   database: Knex.Config;
 
   /**
-   * Anthropic API configuration
+   * LLM configuration
    */
-  anthropic: {
+  llm: {
     /**
-     * Anthropic API key
+     * LLM provider
      */
-    apiKey: string;
+    provider: 'anthropic' | 'openai' | 'cohere' | 'mistral' | 'google';
 
     /**
-     * Claude model to use
-     * @default "claude-sonnet-4-5-20250929"
+     * Model name
+     * @example "claude-sonnet-4-5-20250929"
+     * @example "gpt-4o"
+     * @example "command-r-plus"
      */
-    model?: string;
+    model: string;
+
+    /**
+     * API key for the provider
+     */
+    apiKey: string;
 
     /**
      * Maximum tokens for LLM responses
@@ -56,6 +63,66 @@ export interface NTTPConfig {
      * @default 1000
      */
     maxLimit?: number;
+  };
+
+  /**
+   * 3-layer cache configuration
+   */
+  cache?: {
+    /**
+     * L1 exact match cache configuration
+     */
+    l1?: {
+      /**
+       * Enable L1 cache
+       * @default true
+       */
+      enabled?: boolean;
+
+      /**
+       * Maximum cache size
+       * @default 1000
+       */
+      maxSize?: number;
+    };
+
+    /**
+     * L2 semantic cache configuration
+     */
+    l2?: {
+      /**
+       * Enable L2 cache
+       * @default true
+       */
+      enabled?: boolean;
+
+      /**
+       * Embedding provider
+       */
+      provider: 'openai' | 'cohere' | 'mistral' | 'google';
+
+      /**
+       * Embedding model name
+       */
+      model: string;
+
+      /**
+       * Similarity threshold (0-1)
+       * @default 0.85
+       */
+      threshold?: number;
+
+      /**
+       * Maximum cache size
+       * @default 500
+       */
+      maxSize?: number;
+
+      /**
+       * API key for embedding provider
+       */
+      apiKey?: string;
+    };
   };
 }
 
@@ -119,6 +186,31 @@ export interface QueryResult {
    * SQL parameters (for debugging)
    */
   params?: any[];
+
+  /**
+   * Cache metadata (optional)
+   */
+  meta?: {
+    /**
+     * Which cache layer served this query (1, 2, or 3)
+     */
+    cacheLayer: 1 | 2 | 3;
+
+    /**
+     * Estimated cost in USD
+     */
+    cost: number;
+
+    /**
+     * Latency in milliseconds
+     */
+    latency: number;
+
+    /**
+     * Similarity score for L2 hits (0-1)
+     */
+    similarity?: number;
+  };
 }
 
 /**
@@ -216,27 +308,5 @@ export interface SchemaDefinition {
   last_used_at: Date;
 }
 
-/**
- * Cache statistics
- */
-export interface CacheStats {
-  /**
-   * Total number of cached schemas
-   */
-  total_schemas: number;
-
-  /**
-   * Number of pinned schemas
-   */
-  pinned_schemas: number;
-
-  /**
-   * Total uses across all schemas
-   */
-  total_uses: number;
-
-  /**
-   * Average uses per schema
-   */
-  average_uses: number;
-}
+// Re-export cache types
+export type { CacheStats } from './cache/types.js';

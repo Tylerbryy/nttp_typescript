@@ -1,5 +1,5 @@
 /**
- * Main NTTP class - provides programmatic API for natural language database queries.
+ * Main nttp class - provides programmatic API for natural language database queries.
  */
 
 import { Knex, knex } from 'knex';
@@ -16,9 +16,10 @@ import { SchemaCache } from './cache.js';
 import { LLMService } from './llm.js';
 import { IntentParser } from './intent.js';
 import { QueryExecutor } from './executor.js';
+import { ExactCache, SemanticCache } from './cache/index.js';
 
 /**
- * NTTP - Natural Text Transfer Protocol
+ * nttp - natural text to query
  *
  * @example
  * ```typescript
@@ -27,8 +28,17 @@ import { QueryExecutor } from './executor.js';
  *     client: 'pg',
  *     connection: process.env.DATABASE_URL
  *   },
- *   anthropic: {
+ *   llm: {
+ *     provider: 'anthropic',
+ *     model: 'claude-sonnet-4-5-20250929',
  *     apiKey: process.env.ANTHROPIC_API_KEY
+ *   },
+ *   cache: {
+ *     l2: {
+ *       provider: 'openai',
+ *       model: 'text-embedding-3-small',
+ *       apiKey: process.env.OPENAI_API_KEY
+ *     }
  *   }
  * });
  *
@@ -44,6 +54,10 @@ export class NTTP {
   private executor: QueryExecutor;
   private schemaInfo: Record<string, { columns: string[]; description: string }> = {};
 
+  // 3-layer caches
+  private l1Cache?: ExactCache;
+  private l2Cache?: SemanticCache;
+
   constructor(private config: NTTPConfig) {
     // Initialize Knex
     this.db = knex(config.database);
@@ -53,9 +67,25 @@ export class NTTP {
 
     // Initialize services
     this.cache = new SchemaCache();
-    this.llm = new LLMService(config.anthropic);
+    this.llm = new LLMService(config.llm);
     this.intentParser = new IntentParser(this.llm);
-    this.executor = new QueryExecutor(this.db, this.llm, this.cache);
+
+    // Initialize 3-layer caches
+    if (config.cache?.l1?.enabled !== false) {
+      this.l1Cache = new ExactCache(config.cache?.l1?.maxSize);
+    }
+    if (config.cache?.l2?.enabled !== false && config.cache?.l2) {
+      this.l2Cache = new SemanticCache(config.cache.l2);
+    }
+
+    // Initialize executor with caches
+    this.executor = new QueryExecutor(
+      this.db,
+      this.llm,
+      this.cache,
+      this.l1Cache,
+      this.l2Cache
+    );
   }
 
   /**
@@ -172,7 +202,31 @@ export class NTTP {
    * Get cache statistics.
    */
   async getCacheStats(): Promise<CacheStats> {
-    return this.cache.getStats();
+    const l1Stats = this.l1Cache?.getStats() ?? { size: 0, hits: 0, misses: 0 };
+    const l2Stats = this.l2Cache?.getStats() ?? { size: 0, hits: 0, misses: 0 };
+
+    const totalQueries = l1Stats.hits + l1Stats.misses;
+    const l1Hits = l1Stats.hits;
+    const l2Hits = l2Stats.hits;
+    const l3Calls = l2Stats.misses;
+
+    // Calculate cost savings
+    // L1 saves $0.01 per hit
+    // L2 saves $0.01 - $0.0001 = $0.0099 per hit
+    const estimatedCostSaved = l1Hits * 0.01 + l2Hits * 0.0099;
+
+    return {
+      l1: l1Stats,
+      l2: l2Stats,
+      l3: { calls: l3Calls },
+      totalQueries,
+      hitRates: {
+        l1: totalQueries > 0 ? l1Hits / totalQueries : 0,
+        l2: totalQueries > 0 ? l2Hits / totalQueries : 0,
+        l3: totalQueries > 0 ? l3Calls / totalQueries : 0,
+      },
+      estimatedCostSaved,
+    };
   }
 
   /**
