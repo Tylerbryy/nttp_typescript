@@ -1,0 +1,41 @@
+{
+  "name": "create-nttp",
+  "version": "1.0.0",
+  "description": "Scaffold a new NTTP project",
+  "type": "module",
+  "bin": {
+    "create-nttp": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "templates"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "keywords": [
+    "nttp",
+    "create",
+    "scaffold",
+    "generator",
+    "cli"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "chalk": "^4.1.2",
+    "ora": "^5.4.1",
+    "prompts": "^2.4.2",
+    "gradient-string": "^3.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.7",
+    "@types/prompts": "^2.4.9",
+    "@types/gradient-string": "^1.1.6",
+    "typescript": "^5.4.5"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
