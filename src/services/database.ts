@@ -21,7 +21,20 @@ let inspector: ReturnType<typeof SchemaInspector> | null = null;
 /**
  * Schema information cache.
  */
-let schemaInfo: Record<string, { columns: string[]; description: string }> = {};
+interface TableSchema {
+  columns: string[];
+  description: string;
+}
+
+interface ForeignKey {
+  table: string;
+  column: string;
+  foreign_key_table: string;
+  foreign_key_column: string;
+}
+
+let schemaInfo: Record<string, TableSchema> = {};
+let foreignKeys: ForeignKey[] = [];
 
 /**
  * Get the current Knex instance.
@@ -165,29 +178,39 @@ export function getSchemaDescription(): string {
     `Available tables and their columns:`,
   ];
 
-  let exampleAdded = false;
   for (const [table, info] of Object.entries(schemaInfo)) {
     const columns = info.columns.join(', ');
     lines.push(`- ${table}: ${columns}`);
+  }
 
-    // Add example for first table only (keep it concise)
-    if (!exampleAdded) {
-      lines.push(`  Example query: "show me ${table}"`);
-      exampleAdded = true;
+  // Add foreign key relationships if available
+  if (foreignKeys.length > 0) {
+    lines.push(``);
+    lines.push(`Table Relationships (Foreign Keys):`);
+    for (const fk of foreignKeys) {
+      lines.push(
+        `- ${fk.table}.${fk.column} → ${fk.foreign_key_table}.${fk.foreign_key_column}`
+      );
     }
+    lines.push(``);
+    lines.push(`Note: Use JOINs when querying across related tables. Use LEFT JOIN to include records without matches.`);
   }
 
   lines.push(``);
-  lines.push(`Note: Use actual column names exactly as shown above.`);
+  lines.push(`Instructions: Use actual column names exactly as shown above.`);
 
   return lines.join('\n');
 }
 
 /**
  * Build schema information cache for all tables.
- * Fetches schemas in parallel for better performance.
+ * Fetches schemas and foreign keys in parallel for better performance.
  */
 async function buildSchemaInfo(): Promise<void> {
+  if (!inspector) {
+    throw new Error('Schema inspector not initialized');
+  }
+
   const tables = await getAllTables();
 
   // Fetch all table schemas in parallel
@@ -203,8 +226,29 @@ async function buildSchemaInfo(): Promise<void> {
   for (const { table, columns } of results) {
     schemaInfo[table] = {
       columns,
-      description: '', // Remove redundant description
+      description: '',
     };
+  }
+
+  // Fetch foreign keys for all tables
+  try {
+    foreignKeys = [];
+    for (const table of tables) {
+      const fks = await inspector.foreignKeys(table);
+      for (const fk of fks) {
+        foreignKeys.push({
+          table: fk.table,
+          column: fk.column,
+          foreign_key_table: fk.foreign_key_table,
+          foreign_key_column: fk.foreign_key_column,
+        });
+      }
+    }
+    logger.info(`Detected ${foreignKeys.length} foreign key relationships`);
+  } catch (error) {
+    // Foreign keys might not be supported in all databases
+    logger.warn(`Could not fetch foreign keys: ${error}`);
+    foreignKeys = [];
   }
 
   logger.info(`Cached schema for ${tables.length} tables`);
@@ -219,6 +263,7 @@ export async function closeDb(): Promise<void> {
     db = null;
     inspector = null;
     schemaInfo = {};
+    foreignKeys = [];
     logger.info('Database connection closed');
   }
 }

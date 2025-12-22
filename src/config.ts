@@ -149,7 +149,7 @@ function loadConfig(): Config {
       knexConfig = {
         client: 'pg',
         connection: baseConfig.DATABASE_URL,
-        pool: { min: 2, max: 10 },
+        pool: { min: 0, max: 5 }, // Conservative pool size for cloud databases
       };
       break;
 

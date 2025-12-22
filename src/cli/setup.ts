@@ -413,30 +413,34 @@ export async function runSetupWizard(): Promise<void> {
 
   // Redis setup (optional)
   logger.newline();
-  const { enableRedis } = await prompts({
+  const { redisOption } = await prompts({
     type: 'select',
-    name: 'enableRedis',
+    name: 'redisOption',
     message: 'Enable persistent caching with Redis?',
     choices: [
       {
         title: 'No (use in-memory cache)',
-        value: false,
+        value: 'none',
         description: 'Default - caching is ephemeral, restarts clear cache',
       },
       {
-        title: 'Yes (setup Redis with Docker)',
-        value: true,
-        description: 'Production-ready - persistent cache survives restarts',
+        title: 'Yes - Local Docker Redis',
+        value: 'docker',
+        description: 'Auto-generate docker-compose.yml for local development',
+      },
+      {
+        title: 'Yes - Cloud Redis (Upstash, Redis Cloud, etc.)',
+        value: 'cloud',
+        description: 'Connect to a managed Redis service',
       },
     ],
     initial: 0,
   });
 
-  config.enableRedis = enableRedis;
   let needsDockerCompose = false;
 
-  if (enableRedis) {
-    // Check if Docker is available
+  if (redisOption === 'docker') {
+    // Docker Redis setup
     const hasDocker = checkDockerAvailable();
 
     if (!hasDocker) {
@@ -444,48 +448,74 @@ export async function runSetupWizard(): Promise<void> {
       logger.info('Install Docker from: https://docs.docker.com/get-docker/');
       logger.newline();
 
-      const { manualRedis } = await prompts({
+      const { continueAnyway } = await prompts({
         type: 'confirm',
-        name: 'manualRedis',
-        message: 'Continue with manual Redis setup?',
-        initial: false,
+        name: 'continueAnyway',
+        message: 'Generate docker-compose.yml anyway? (you can start Docker later)',
+        initial: true,
       });
 
-      if (manualRedis) {
-        const { redisUrl } = await prompts({
-          type: 'text',
-          name: 'redisUrl',
-          message: 'Redis connection URL:',
-          initial: 'redis://localhost:6379',
-        });
-        config.redisUrl = redisUrl;
+      if (continueAnyway) {
+        needsDockerCompose = true;
+        config.enableRedis = true;
+        config.redisUrl = 'redis://localhost:6379';
       } else {
         logger.info('Skipping Redis setup. You can enable it later by adding REDIS_URL to .env');
         config.enableRedis = false;
       }
     } else {
-      // Docker is available - offer to generate docker-compose.yml
       logger.success('Docker detected!');
-      const { useDockerCompose } = await prompts({
-        type: 'confirm',
-        name: 'useDockerCompose',
-        message: 'Generate docker-compose.yml for Redis?',
-        initial: true,
-      });
-
-      if (useDockerCompose) {
-        needsDockerCompose = true;
-        config.redisUrl = 'redis://localhost:6379';
-      } else {
-        const { redisUrl } = await prompts({
-          type: 'text',
-          name: 'redisUrl',
-          message: 'Redis connection URL:',
-          initial: 'redis://localhost:6379',
-        });
-        config.redisUrl = redisUrl;
-      }
+      needsDockerCompose = true;
+      config.enableRedis = true;
+      config.redisUrl = 'redis://localhost:6379';
     }
+  } else if (redisOption === 'cloud') {
+    // Cloud Redis setup with examples
+    logger.newline();
+    logger.info('Supported Redis URL formats:');
+    logger.info('');
+    logger.info('  Upstash (standard):');
+    logger.info('    rediss://default:[PASSWORD]@[HOST].upstash.io:6379');
+    logger.info('');
+    logger.info('  Redis Cloud:');
+    logger.info('    redis://default:[PASSWORD]@[HOST].redis.cloud:12345');
+    logger.info('');
+    logger.info('  AWS ElastiCache:');
+    logger.info('    redis://[HOST].cache.amazonaws.com:6379');
+    logger.info('');
+    logger.info('  Local/Custom:');
+    logger.info('    redis://[HOST]:6379');
+    logger.info('    redis://:[PASSWORD]@[HOST]:6379');
+    logger.newline();
+
+    const { redisUrl } = await prompts({
+      type: 'text',
+      name: 'redisUrl',
+      message: 'Redis connection URL:',
+      initial: 'rediss://default:password@host.upstash.io:6379',
+      validate: (value: string) => {
+        // Basic Redis URL validation
+        if (!value.startsWith('redis://') && !value.startsWith('rediss://')) {
+          return 'URL must start with redis:// or rediss://';
+        }
+        if (value.length < 15) {
+          return 'URL seems too short. Please check the format.';
+        }
+        return true;
+      },
+    });
+
+    if (!redisUrl) {
+      logger.warn('Redis URL not provided. Skipping Redis setup.');
+      config.enableRedis = false;
+    } else {
+      config.enableRedis = true;
+      config.redisUrl = redisUrl;
+      logger.success('Cloud Redis configured!');
+    }
+  } else {
+    // No Redis
+    config.enableRedis = false;
   }
 
   // Generate .env file
@@ -527,6 +557,14 @@ export async function runSetupWizard(): Promise<void> {
     logger.newline();
     logger.info('To stop Redis:');
     logger.code('docker-compose down', 'bash');
+  } else if (config.enableRedis && config.redisUrl) {
+    logger.info('✅ Cloud Redis configured!');
+    logger.newline();
+    logger.info('Start the development server:');
+    logger.code('npm run dev', 'bash');
+    logger.newline();
+    logger.info('Check cache status:');
+    logger.code('curl http://localhost:' + config.port + '/stats', 'bash');
   } else {
     logger.info('Start the development server:');
     logger.code('npm run dev', 'bash');

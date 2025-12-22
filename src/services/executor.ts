@@ -183,6 +183,23 @@ Intent: {"entity": "users", "operation": "list", "filters": {"status": "active,p
 Output: {"sql": "SELECT * FROM users WHERE status IN (?, ?) LIMIT ?", "params": ["active", "pending", 100]}
 </example>
 
+JOIN Query Examples (for cross-table queries):
+
+<example>
+Intent: {"entity": "users", "operation": "list", "filters": {}, "limit": 10, "fields": null, "sort": "total_spent:desc"}
+Output: {"sql": "SELECT u.*, COALESCE(SUM(o.total), 0) as total_spent FROM users u LEFT JOIN orders o ON u.id = o.user_id GROUP BY u.id ORDER BY total_spent DESC LIMIT ?", "params": [10]}
+</example>
+
+<example>
+Intent: {"entity": "products", "operation": "list", "filters": {}, "limit": 10, "fields": null, "sort": "order_count:desc"}
+Output: {"sql": "SELECT p.*, COUNT(DISTINCT oi.order_id) as order_count FROM products p LEFT JOIN order_items oi ON p.id = oi.product_id GROUP BY p.id ORDER BY order_count DESC LIMIT ?", "params": [10]}
+</example>
+
+<example>
+Intent: {"entity": "orders", "operation": "list", "filters": {}, "limit": 10, "fields": ["id", "total", "user_name"], "sort": null}
+Output: {"sql": "SELECT o.id, o.total, u.name as user_name FROM orders o JOIN users u ON o.user_id = u.id LIMIT ?", "params": [10]}
+</example>
+
 Operator and pattern detection rules:
 CRITICAL: Check for these patterns in filter values BEFORE defaulting to equality:
 
