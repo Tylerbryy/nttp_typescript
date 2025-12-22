@@ -38,16 +38,16 @@
     "knex-schema-inspector": "^3.1.0",
     "zod": "^3.23.8",
     "zod-to-json-schema": "^3.23.0",
-    "ai": "^4.0.0",
-    "@ai-sdk/openai": "^1.0.0"
+    "ai": "^6.0.0",
+    "@ai-sdk/openai": "^3.0.0"
   },
   "peerDependencies": {
     "better-sqlite3": "^9.6.0",
     "pg": "^8.13.1",
     "mysql2": "^3.11.5",
     "mssql": "^11.0.1",
-    "@ai-sdk/anthropic": "^1.0.0",
-    "@ai-sdk/cohere": "^1.0.0",
+    "@ai-sdk/anthropic": "^3.0.0",
+    "@ai-sdk/cohere": "^2.0.0",
     "@ai-sdk/mistral": "^1.0.0",
     "@ai-sdk/google-vertex": "^1.0.0"
   },

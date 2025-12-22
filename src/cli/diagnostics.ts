@@ -104,7 +104,7 @@ export async function runDiagnostics(): Promise<void> {
   const packageJsonPath = join(process.cwd(), 'package.json');
   if (existsSync(packageJsonPath)) {
     const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
-    const requiredDeps = ['knex', 'fastify', '@anthropic-ai/sdk'];
+    const requiredDeps = ['knex', 'fastify', '@ai-sdk/anthropic', 'ai'];
     const missingDeps = requiredDeps.filter((dep) => !packageJson.dependencies?.[dep]);
 
     checks.push({

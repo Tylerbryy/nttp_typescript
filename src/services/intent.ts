@@ -3,90 +3,124 @@
  */
 
 import crypto from 'crypto';
-import { callClaudeStructured } from './llm.js';
+import { z } from 'zod';
+import { callLLMStructured } from './llm.js';
 import { Intent } from '../types/models.js';
 import { IntentParseError, LLMError } from '../types/errors.js';
 import { getSchemaDescription } from './database.js';
 import { logger } from '../utils/logger.js';
 
 /**
- * JSON Schema for intent parsing (for structured outputs).
+ * Zod Schema for intent parsing (for structured outputs).
+ * Schema-agnostic: works with any database schema.
  */
-const INTENT_JSON_SCHEMA = {
-  type: 'object',
-  properties: {
-    entity: {
-      type: 'string',
-      description:
-        'Target table name (users, products, orders, or order_items)',
-    },
-    operation: {
-      type: 'string',
-      enum: ['list', 'count', 'aggregate', 'filter'],
-      description: 'Operation type',
-    },
-    filters: {
-      type: 'object',
-      description: 'Filter conditions as key-value pairs',
-      properties: {
-        status: { type: 'string' },
-        category: { type: 'string' },
-        in_stock: { type: 'boolean' },
-        created_at: { type: 'string' },
-        user_id: { type: 'integer' },
-        order_id: { type: 'integer' },
-        product_id: { type: 'integer' },
-      },
-      additionalProperties: false,
-    },
-    limit: {
-      type: ['integer', 'null'],
-      description: 'Result limit, or null for default',
-    },
-    fields: {
-      type: ['array', 'null'],
-      items: { type: 'string' },
-      description: 'Specific fields to return, or null for all fields',
-    },
-    sort: {
-      type: ['string', 'null'],
-      description: "Sort specification (e.g., 'created_at:desc'), or null",
-    },
-  },
-  required: ['entity', 'operation'],
-  additionalProperties: false,
-};
+const IntentSchema = z.object({
+  entity: z
+    .string()
+    .describe('Target table name'),
+  operation: z
+    .enum(['list', 'count', 'aggregate', 'filter'])
+    .describe('Operation type'),
+  filters: z
+    .array(
+      z.object({
+        field: z.string().describe('Field name to filter on'),
+        value: z.string().describe('Value to filter by as string'),
+      })
+    )
+    .optional()
+    .default([])
+    .describe('Filter conditions as array of field-value pairs'),
+  limit: z.number().int().nullable().optional().describe('Result limit, or null for default'),
+  fields: z
+    .array(z.string())
+    .nullable()
+    .optional()
+    .describe('Specific fields to return, or null for all fields'),
+  sort: z
+    .string()
+    .nullable()
+    .optional()
+    .describe("Sort specification (e.g., 'created_at:desc'), or null"),
+});
 
 /**
  * System prompt for intent parsing.
  */
 const INTENT_PARSE_SYSTEM_PROMPT = `You are an expert at parsing natural language database queries.
-Extract structured intent from user queries about an e-commerce database.
+
+Context:
+- You are the first stage in a natural language to SQL pipeline
+- Your output feeds into a SQL generation stage that trusts your intent parsing
+- Accuracy is critical - the SQL generator relies on your structured output
+- Users range from technical to non-technical backgrounds
+- Queries will be cached based on normalized intent for performance
 
 {schema}
 
-Return JSON with this exact structure:
+Your task is to parse a natural language database query into structured intent.
+
+Instructions (follow sequentially):
+1. Identify the target table from the schema (entity)
+2. Determine the operation type (list/count/aggregate/filter)
+3. Extract ALL filter conditions as field-value pairs
+4. Identify any limit specification (or null for default)
+5. Note any specific fields requested (or null for all fields)
+6. Detect sort specifications in field:direction format (or null)
+7. Return ONLY the JSON structure, no additional text
+
+JSON Structure:
 {
   "entity": "<table_name>",
   "operation": "<list|count|aggregate|filter>",
-  "filters": {"<field>": "<value>"},
+  "filters": [{"field": "<field_name>", "value": "<value>"}],
   "limit": <number or null>,
   "fields": [<field names>] or null,
   "sort": "<field:asc|desc>" or null
 }
 
-Rules:
-- entity must be one of: users, products, orders, order_items
-- operation: "list" for SELECT, "count" for COUNT, "aggregate" for SUM/AVG/etc
-- filters: extract conditions (e.g., "active users" -> {"status": "active"})
-- limit: extract limit if specified, otherwise null
-- fields: specific fields requested, or null for all fields
-- sort: sorting specification if mentioned
+<example>
+Query: "get all active users"
+Output: {"entity": "users", "operation": "list", "filters": [{"field": "status", "value": "active"}], "limit": null, "fields": null, "sort": null}
+</example>
 
-Examples:
-- "get all active users" -> {"entity": "users", "operation": "list", "filters": {"status": "active"}, "limit": null}
-- "show me 10 products" -> {"entity": "products", "operation": "list", "filters": {}, "limit": 10}
-- "count pending orders" -> {"entity": "orders", "operation": "count", "filters": {"status": "pending"}, "limit": null}
+<example>
+Query: "show me 10 products"
+Output: {"entity": "products", "operation": "list", "filters": [], "limit": 10, "fields": null, "sort": null}
+</example>
+
+<example>
+Query: "count pending orders"
+Output: {"entity": "orders", "operation": "count", "filters": [{"field": "status", "value": "pending"}], "limit": null, "fields": null, "sort": null}
+</example>
+
+<example>
+Query: "how many pending orders from California?"
+Output: {"entity": "orders", "operation": "count", "filters": [{"field": "status", "value": "pending"}, {"field": "state", "value": "California"}], "limit": null, "fields": null, "sort": null}
+</example>
+
+<example>
+Query: "list user emails and names sorted by created date descending"
+Output: {"entity": "users", "operation": "list", "filters": [], "limit": null, "fields": ["email", "name"], "sort": "created_at:desc"}
+</example>
+
+<example>
+Query: "show top 5 expensive products in electronics category"
+Output: {"entity": "products", "operation": "list", "filters": [{"field": "category", "value": "electronics"}], "limit": 5, "fields": null, "sort": "price:desc"}
+</example>
+
+<example>
+Query: "find all orders above 100 dollars"
+Output: {"entity": "orders", "operation": "list", "filters": [{"field": "amount", "value": "100"}], "limit": null, "fields": null, "sort": null}
+</example>
+
+Special cases:
+- Multiple filters: Extract all conditions as separate field-value pairs
+- Comparative values (above/below/greater): Use numeric values without operators
+- Date references: Use ISO 8601 format (YYYY-MM-DD) when possible
+- Empty results: Return empty filters array [], not null
+- Ambiguous terms: Default to most common interpretation
+- Field name variations: Match to actual schema column names exactly
 `;
 
 /**
@@ -106,29 +140,36 @@ export async function parseIntent(query: string): Promise<Intent> {
     );
 
     // Call LLM to parse intent with structured outputs (guaranteed schema compliance)
-    const result = await callClaudeStructured<any>(
+    const result = await callLLMStructured(
       query,
       systemPrompt,
-      INTENT_JSON_SCHEMA,
+      IntentSchema,
       0.0
     );
 
-    // Ensure filters is a dict (guaranteed by schema, but defensive programming)
-    if (!result.filters) {
-      result.filters = {};
+    // Convert filters array to object format
+    const filtersObject: Record<string, any> = {};
+    if (result.filters && Array.isArray(result.filters)) {
+      for (const filter of result.filters) {
+        filtersObject[filter.field] = filter.value;
+      }
     }
 
     // Generate normalized text for cache key
-    const normalized = normalizeIntentDict(result);
+    const normalizedData = {
+      ...result,
+      filters: filtersObject,
+    };
+    const normalized = normalizeIntentDict(normalizedData);
 
     // Create Intent object
     const intent: Intent = {
       entity: result.entity,
       operation: result.operation,
-      filters: result.filters || {},
-      limit: result.limit,
-      fields: result.fields,
-      sort: result.sort,
+      filters: filtersObject,
+      limit: result.limit ?? null,
+      fields: result.fields ?? null,
+      sort: result.sort ?? null,
       normalized_text: normalized,
     };
 

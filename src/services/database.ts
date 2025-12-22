@@ -157,15 +157,30 @@ export async function getTableSchema(
  * Get formatted schema description for LLM prompts.
  */
 export function getSchemaDescription(): string {
-  const lines: string[] = [`Database schema (${config.KNEX_CONFIG.client}):`];
+  const lines: string[] = [
+    `Database schema (${config.KNEX_CONFIG.client}):`,
+    ``,
+    `Available tables and their columns:`,
+  ];
 
+  let exampleAdded = false;
   for (const [table, info] of Object.entries(schemaInfo)) {
     const columns = info.columns.join(', ');
-    lines.push(`- ${table} (${columns})`);
+    lines.push(`- ${table}: ${columns}`);
+
     if (info.description) {
       lines.push(`  ${info.description}`);
     }
+
+    // Add example for first table only (keep it concise)
+    if (!exampleAdded) {
+      lines.push(`  Example query: "show me ${table}"`);
+      exampleAdded = true;
+    }
   }
+
+  lines.push(``);
+  lines.push(`Note: Use actual column names exactly as shown above.`);
 
   return lines.join('\n');
 }

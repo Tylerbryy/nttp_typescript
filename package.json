@@ -45,14 +45,15 @@
     "node": ">=20.0.0"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^1.2.12",
-    "@anthropic-ai/sdk": "^0.71.2",
+    "@ai-sdk/anthropic": "^3.0.0",
+    "@ai-sdk/openai": "^3.0.0",
     "@faker-js/faker": "^10.1.0",
     "@fastify/cors": "^11.2.0",
     "@fastify/swagger": "^9.6.1",
     "@fastify/swagger-ui": "^5.2.3",
     "@types/better-sqlite3": "^7.6.13",
     "@types/prompts": "^2.4.9",
+    "ai": "^6.0.1",
     "better-sqlite3": "^9.6.0",
     "boxen": "^8.0.1",
     "cac": "^6.7.14",

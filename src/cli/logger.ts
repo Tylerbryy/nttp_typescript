@@ -23,7 +23,7 @@ export function printBanner(): void {
 ║   ${chalk.gray('natural text to query')}             ║
 ║                                       ║
 ║   ${chalk.gray('Query databases with natural')}      ║
-║   ${chalk.gray('language, powered by Claude AI')}    ║
+║   ${chalk.gray('language')}                           ║
 ║                                       ║
 ╚═══════════════════════════════════════╝
   `;

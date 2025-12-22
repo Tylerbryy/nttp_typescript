@@ -1,85 +1,110 @@
 /**
- * LLM integration layer with Claude API.
+ * LLM integration layer using Vercel AI SDK.
  * Implements structured outputs for guaranteed schema compliance.
+ * Supports multiple LLM providers: Anthropic, OpenAI, etc.
  */
 
-import Anthropic from '@anthropic-ai/sdk';
+import { generateText, Output } from 'ai';
+import type { LanguageModelV1 } from 'ai';
+import { z } from 'zod';
 import { config } from '../config.js';
 import { logger } from '../utils/logger.js';
 import { LLMError } from '../types/errors.js';
 
 /**
- * Initialize Anthropic client.
+ * Initialize the language model based on the configured provider.
  */
-const client = new Anthropic({
-  apiKey: config.ANTHROPIC_API_KEY,
-});
+async function initializeModel(): Promise<LanguageModelV1> {
+  const provider = config.LLM_CONFIG.provider;
+  const modelId = config.LLM_CONFIG.model;
+
+  logger.info(`Initializing LLM: ${provider}/${modelId}`);
+
+  switch (provider) {
+    case 'anthropic': {
+      const { anthropic } = await import('@ai-sdk/anthropic');
+      return anthropic(modelId);
+    }
+
+    case 'openai': {
+      const { openai } = await import('@ai-sdk/openai');
+      return openai(modelId);
+    }
+
+    default:
+      throw new Error(`Unsupported LLM provider: ${provider}`);
+  }
+}
 
 /**
- * Beta version for structured outputs.
+ * Global model instance (lazy-loaded).
  */
-const STRUCTURED_OUTPUTS_BETA = 'structured-outputs-2025-11-13';
+let _modelInstance: LanguageModelV1 | null = null;
+
+async function getModel(): Promise<LanguageModelV1> {
+  if (!_modelInstance) {
+    _modelInstance = await initializeModel();
+  }
+  return _modelInstance;
+}
 
 /**
- * Call Claude API with structured outputs (guaranteed schema compliance).
+ * Call LLM API with structured outputs (guaranteed schema compliance).
  *
- * This uses the structured outputs beta feature to guarantee that Claude's
- * response will always match the provided JSON schema, eliminating parsing errors
+ * This uses the AI SDK's structured output feature to guarantee that the LLM's
+ * response will always match the provided Zod schema, eliminating parsing errors
  * and schema validation issues.
  *
  * @param prompt User prompt
  * @param system System prompt
- * @param jsonSchema JSON schema that response must follow
+ * @param schema Zod schema that response must follow
  * @param temperature Sampling temperature (0.0 for deterministic)
  * @param maxTokens Maximum tokens in response
  * @param maxRetries Maximum number of retry attempts
- * @returns Parsed JSON response matching the schema
+ * @returns Parsed response matching the schema
  * @throws LLMError if all retries fail
  */
-export async function callClaudeStructured<T>(
+export async function callLLMStructured<T>(
   prompt: string,
   system: string,
-  jsonSchema: Record<string, any>,
+  schema: z.ZodType<T>,
   temperature: number = 0.0,
   maxTokens: number = 2048,
   maxRetries: number = 3
 ): Promise<T> {
+  const model = await getModel();
+
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      const response = await client.beta.messages.create({
-        model: config.CLAUDE_MODEL,
-        max_tokens: maxTokens,
-        temperature,
+      const result = await generateText({
+        model,
         system,
-        betas: [STRUCTURED_OUTPUTS_BETA],
-        messages: [{ role: 'user', content: prompt }],
-        output_format: {
-          type: 'json_schema',
-          schema: jsonSchema,
-        },
-      } as any);
+        prompt,
+        temperature,
+        maxTokens,
+        output: Output.object({ schema }),
+      });
 
-      // Extract JSON from response (guaranteed to match schema)
-      let jsonText = '';
-      for (const block of response.content) {
-        if (block.type === 'text') {
-          jsonText += block.text;
+      // Log token usage
+      const steps = (result as any).steps;
+      if (steps && steps.length > 0) {
+        const lastStep = steps[steps.length - 1];
+        const usage = lastStep.usage;
+        if (usage) {
+          logger.info(
+            `LLM API call successful (structured) - ` +
+              `Input: ${usage.promptTokens}, ` +
+              `Output: ${usage.completionTokens}`
+          );
         }
       }
 
-      // Log token usage
-      logger.info(
-        `Claude API call successful (structured) - ` +
-          `Input: ${response.usage.input_tokens}, ` +
-          `Output: ${response.usage.output_tokens}`
-      );
-
-      // Parse the JSON (will always be valid due to structured outputs)
-      return JSON.parse(jsonText) as T;
+      // Return the structured output from _output
+      return (result as any)._output as T;
     } catch (error) {
       const waitTime = Math.pow(2, attempt); // Exponential backoff: 1s, 2s, 4s
       logger.warn(
-        `Claude API call failed (attempt ${attempt + 1}/${maxRetries}): ${error}`
+        `LLM API call failed (attempt ${attempt + 1}/${maxRetries}): ${error}`
       );
 
       if (attempt < maxRetries - 1) {
@@ -87,64 +112,60 @@ export async function callClaudeStructured<T>(
         await new Promise((resolve) => setTimeout(resolve, waitTime * 1000));
       } else {
         throw new LLMError(
-          `Claude API failed after ${maxRetries} attempts: ${error}`
+          `LLM API failed after ${maxRetries} attempts: ${error}`
         );
       }
     }
   }
 
   // TypeScript requires this, but we'll never reach it due to the throw above
-  throw new LLMError('Unexpected error in callClaudeStructured');
+  throw new LLMError('Unexpected error in callLLMStructured');
 }
 
 /**
- * Call Claude API without structured outputs (basic text response).
+ * Call LLM API without structured outputs (basic text response).
  *
  * @param prompt User prompt
  * @param system System prompt
  * @param temperature Sampling temperature
  * @param maxTokens Maximum tokens in response
  * @param maxRetries Maximum number of retry attempts
- * @returns Response text from Claude
+ * @returns Response text from LLM
  * @throws LLMError if all retries fail
  */
-export async function callClaude(
+export async function callLLM(
   prompt: string,
   system: string,
   temperature: number = 0.0,
   maxTokens: number = 2048,
   maxRetries: number = 3
 ): Promise<string> {
+  const model = await getModel();
+
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      const response = await client.messages.create({
-        model: config.CLAUDE_MODEL,
-        max_tokens: maxTokens,
-        temperature,
+      const result = await generateText({
+        model,
         system,
-        messages: [{ role: 'user', content: prompt }],
+        prompt,
+        temperature,
+        maxTokens,
       });
 
-      // Extract text from response
-      let textContent = '';
-      for (const block of response.content) {
-        if (block.type === 'text') {
-          textContent += block.text;
-        }
+      // Log token usage
+      if (result.usage) {
+        logger.info(
+          `LLM API call successful - ` +
+            `Input: ${result.usage.promptTokens}, ` +
+            `Output: ${result.usage.completionTokens}`
+        );
       }
 
-      // Log token usage
-      logger.info(
-        `Claude API call successful - ` +
-          `Input: ${response.usage.input_tokens}, ` +
-          `Output: ${response.usage.output_tokens}`
-      );
-
-      return textContent;
+      return result.text;
     } catch (error) {
       const waitTime = Math.pow(2, attempt); // Exponential backoff
       logger.warn(
-        `Claude API call failed (attempt ${attempt + 1}/${maxRetries}): ${error}`
+        `LLM API call failed (attempt ${attempt + 1}/${maxRetries}): ${error}`
       );
 
       if (attempt < maxRetries - 1) {
@@ -152,11 +173,11 @@ export async function callClaude(
         await new Promise((resolve) => setTimeout(resolve, waitTime * 1000));
       } else {
         throw new LLMError(
-          `Claude API failed after ${maxRetries} attempts: ${error}`
+          `LLM API failed after ${maxRetries} attempts: ${error}`
         );
       }
     }
   }
 
-  throw new LLMError('Unexpected error in callClaude');
+  throw new LLMError('Unexpected error in callLLM');
 }

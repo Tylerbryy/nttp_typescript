@@ -3,7 +3,8 @@
  * Main orchestration pipeline for NTTP.
  */
 
-import { callClaudeStructured } from './llm.js';
+import { z } from 'zod';
+import { callLLMStructured } from './llm.js';
 import {
   Intent,
   QueryRequest,
@@ -23,55 +24,102 @@ import { cache } from './schema-cache.js';
 import { parseIntent, generateSchemaId } from './intent.js';
 
 /**
- * JSON Schema for SQL generation (for structured outputs).
+ * Zod Schema for SQL generation (for structured outputs).
  */
-const SQL_GENERATION_JSON_SCHEMA = {
-  type: 'object',
-  properties: {
-    sql: {
-      type: 'string',
-      description: 'The SQL query to execute',
-    },
-    params: {
-      type: 'array',
-      items: {
-        type: ['string', 'integer', 'number', 'boolean', 'null'],
-      },
-      description: 'Parameters for the SQL query',
-    },
-  },
-  required: ['sql', 'params'],
-  additionalProperties: false,
-};
+const SQLGenerationSchema = z.object({
+  sql: z.string().describe('The SQL query to execute'),
+  params: z
+    .array(z.union([z.string(), z.number(), z.boolean(), z.null()]))
+    .describe('Parameters for the SQL query'),
+});
 
 /**
  * System prompt for SQL generation.
  */
-const SQL_GENERATION_SYSTEM_PROMPT = `You are an expert SQL generator for SQLite.
-Generate safe, read-only SQL queries from structured intents.
+const SQL_GENERATION_SYSTEM_PROMPT = `You are an expert SQL generator for database systems.
+
+Context:
+- You are generating read-only SQL queries for a multi-database system
+- Input is pre-validated structured intent from the intent parser
+- Query will be executed via parameterized prepared statements
+- Database dialect is: {dialect}
+- Safety is paramount - only SELECT queries allowed
+- ALL values MUST use ? placeholders (parameterized)
 
 {schema}
 
-Rules:
-- Use parameterized queries with ? placeholders for values
-- Add LIMIT clause (max {max_limit})
-- Only SELECT queries - no UPDATE, DELETE, DROP, ALTER, INSERT
-- Valid SQLite syntax only
-- Use proper JOINs for relationships between tables
-- Handle filters intelligently (e.g., status='active', created_at > date)
+Your task is to generate a safe, efficient SQL query from structured intent.
 
-Return JSON:
+Instructions (follow sequentially):
+1. Start with SELECT and specify requested fields (or * for all)
+2. Add FROM clause with the entity table name
+3. Build WHERE clause from filters object:
+   - String values: Use = operator for equality
+   - Numeric-looking values: Infer comparison operator from context
+   - Pattern-like values (%, _): Use LIKE operator
+   - Multiple values for same field: Use IN operator
+4. Add ORDER BY clause if sort is specified
+5. Add LIMIT clause (required for list operations, max {max_limit})
+6. ALL values go in params array in order of appearance
+7. Return ONLY the JSON with sql and params
+
+JSON Structure:
 {
-  "sql": "SELECT ... FROM ... WHERE ... LIMIT ?",
+  "sql": "SELECT ... FROM ... WHERE ... ORDER BY ... LIMIT ?",
   "params": [value1, value2, ...]
 }
 
-Examples:
-Intent: {"entity": "users", "operation": "list", "filters": {"status": "active"}, "limit": 10}
-Response: {"sql": "SELECT * FROM users WHERE status = ? LIMIT ?", "params": ["active", 10]}
+<example>
+Intent: {"entity": "users", "operation": "list", "filters": {"status": "active"}, "limit": 10, "fields": null, "sort": null}
+Output: {"sql": "SELECT * FROM users WHERE status = ? LIMIT ?", "params": ["active", 10]}
+</example>
 
-Intent: {"entity": "orders", "operation": "count", "filters": {"status": "pending"}}
-Response: {"sql": "SELECT COUNT(*) as count FROM orders WHERE status = ?", "params": ["pending"]}
+<example>
+Intent: {"entity": "orders", "operation": "count", "filters": {"status": "pending"}, "limit": null, "fields": null, "sort": null}
+Output: {"sql": "SELECT COUNT(*) as count FROM orders WHERE status = ?", "params": ["pending"]}
+</example>
+
+<example>
+Intent: {"entity": "products", "operation": "list", "filters": {"price": "100", "category": "electronics"}, "limit": 20, "fields": null, "sort": "price:desc"}
+Output: {"sql": "SELECT * FROM products WHERE price >= ? AND category = ? ORDER BY price DESC LIMIT ?", "params": ["100", "electronics", 20]}
+</example>
+
+<example>
+Intent: {"entity": "users", "operation": "list", "filters": {}, "limit": 5, "fields": ["email", "name"], "sort": "created_at:desc"}
+Output: {"sql": "SELECT email, name FROM users ORDER BY created_at DESC LIMIT ?", "params": [5]}
+</example>
+
+<example>
+Intent: {"entity": "orders", "operation": "list", "filters": {"created_at": "2025-01-01"}, "limit": 100, "fields": null, "sort": null}
+Output: {"sql": "SELECT * FROM orders WHERE created_at >= ? LIMIT ?", "params": ["2025-01-01", 100]}
+</example>
+
+<example>
+Intent: {"entity": "products", "operation": "list", "filters": {"name": "widget%"}, "limit": 50, "fields": null, "sort": null}
+Output: {"sql": "SELECT * FROM products WHERE name LIKE ? LIMIT ?", "params": ["widget%", 50]}
+</example>
+
+<example>
+Intent: {"entity": "users", "operation": "count", "filters": {}, "limit": null, "fields": null, "sort": null}
+Output: {"sql": "SELECT COUNT(*) as count FROM users", "params": []}
+</example>
+
+Operator inference rules:
+- Equality (=): Default for exact string matches
+- Comparison (>, >=, <, <=): Infer from numeric values and context
+- LIKE: Detect % or _ wildcards in value
+- IN: Detect comma-separated values (e.g., "active,pending")
+- IS NULL: Detect "null" or "none" values
+
+Value type inference:
+- Numbers: No quotes, valid numeric format
+- Dates: ISO 8601 format (YYYY-MM-DD) - use >= for date comparisons
+- Strings: Everything else
+
+Safety requirements:
+- NEVER use UPDATE, DELETE, DROP, ALTER, INSERT, CREATE, TRUNCATE, REPLACE
+- ALWAYS use parameterized queries (? placeholders)
+- ALWAYS include LIMIT for list operations (except count/aggregate)
 `;
 
 /**
@@ -99,21 +147,20 @@ export async function generateSql(
     const systemPrompt = SQL_GENERATION_SYSTEM_PROMPT.replace(
       '{schema}',
       schema
-    ).replace('{max_limit}', String(config.MAX_LIMIT));
+    )
+      .replace('{max_limit}', String(config.MAX_LIMIT))
+      .replace('{dialect}', config.KNEX_CONFIG.client || 'SQLite');
 
     // Call LLM to generate SQL with structured outputs (guaranteed schema compliance)
-    const result = await callClaudeStructured<{
-      sql: string;
-      params: any[];
-    }>(
+    const result = await callLLMStructured(
       JSON.stringify(intentDict),
       systemPrompt,
-      SQL_GENERATION_JSON_SCHEMA,
+      SQLGenerationSchema,
       0.0
     );
 
     const sql = result.sql;
-    const params = result.params || [];
+    const params = result.params;
 
     // Safety validation
     if (!validateSqlSafety(sql)) {
