@@ -2,7 +2,7 @@
 
 ## Overview
 
-**NTTP (Natural Text Transfer Protocol)** is a TypeScript API server that allows you to query databases using natural language. Simply ask questions in plain English, and NTTP translates them into SQL queries using Claude AI.
+**NTTP (Natural Text Transfer Protocol)** is a TypeScript API server that allows you to query databases using natural language. Simply ask questions in plain English, and NTTP translates them into SQL queries using an LLM.
 
 ## Key Features
 

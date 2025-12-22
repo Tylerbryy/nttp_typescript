@@ -2,7 +2,8 @@
  * Main nttp class - provides programmatic API for natural language database queries.
  */
 
-import { Knex, knex } from 'knex';
+import knexLib, { Knex } from 'knex';
+const knex = knexLib.default || knexLib;
 import { SchemaInspector } from 'knex-schema-inspector';
 import type {
   NTTPConfig,
@@ -120,6 +121,7 @@ export class NTTP {
       intent,
       useCache: options.useCache ?? true,
       forceNewSchema: options.forceNewSchema ?? false,
+      schemaDescription: this.getSchemaDescription(),
     });
 
     return {
@@ -146,12 +148,13 @@ export class NTTP {
     schemaId: string;
     cachedSchema: SchemaDefinition | null;
   }> {
-    const intent = await this.intentParser.parse(query, this.getSchemaDescription());
+    const schemaDescription = this.getSchemaDescription();
+    const intent = await this.intentParser.parse(query, schemaDescription);
     const schemaId = this.intentParser.generateSchemaId(intent);
     const cached = await this.cache.get(schemaId);
 
     // Generate SQL without executing
-    const { sql, params } = await this.executor.generateSql(intent);
+    const { sql, params } = await this.executor.generateSql(intent, schemaDescription);
 
     return {
       query,

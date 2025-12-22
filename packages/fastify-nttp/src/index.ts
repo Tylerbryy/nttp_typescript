@@ -260,15 +260,16 @@ const nttpPlugin: FastifyPluginAsync<NTTPPluginOptions> = async (
   );
 };
 
-// Export as Fastify plugin
-export default fp(nttpPlugin, {
-  fastify: '4.x',
-  name: '@nttp/fastify',
-});
-
-// Type augmentation for TypeScript
+// Type augmentation for TypeScript (must come before export)
 declare module 'fastify' {
   interface FastifyInstance {
     nttp: NTTP;
   }
 }
+
+// Export as Fastify plugin
+// @ts-expect-error - Known fastify-plugin type inference issue with decorated instances
+export default fp(nttpPlugin, {
+  fastify: '4.x',
+  name: '@nttp/fastify',
+});

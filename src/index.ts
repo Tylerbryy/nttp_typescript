@@ -97,7 +97,7 @@ fastify.setErrorHandler((error, request, reply) => {
   } else {
     reply.status(500).send({
       error: 'InternalServerError',
-      message: error.message || 'An unexpected error occurred',
+      message: (error as Error).message || 'An unexpected error occurred',
     });
   }
 });

@@ -63,7 +63,7 @@ async function getModel(): Promise<LanguageModel> {
  * @param system System prompt
  * @param schema Zod schema that response must follow
  * @param temperature Sampling temperature (0.0 for deterministic)
- * @param maxTokens Maximum tokens in response
+ * @param maxOutputTokens Maximum tokens in response (default 2048)
  * @param maxRetries Maximum number of retry attempts
  * @returns Parsed response matching the schema
  * @throws LLMError if all retries fail
@@ -73,7 +73,7 @@ export async function callLLMStructured<T extends JsonValue>(
   system: string,
   schema: z.ZodType<T>,
   temperature: number = 0.0,
-  maxTokens: number = 2048,
+  maxOutputTokens: number = 2048,
   maxRetries: number = 3
 ): Promise<T> {
   const model = await getModel();
@@ -85,7 +85,7 @@ export async function callLLMStructured<T extends JsonValue>(
         system,
         prompt,
         temperature,
-        maxTokens,
+        maxOutputTokens,
         output: Output.object({ schema }),
       });
 
@@ -97,8 +97,8 @@ export async function callLLMStructured<T extends JsonValue>(
         if (usage) {
           logger.info(
             `LLM API call successful (structured) - ` +
-              `Input: ${usage.promptTokens}, ` +
-              `Output: ${usage.completionTokens}`
+              `Input: ${usage.inputTokens}, ` +
+              `Output: ${usage.outputTokens}`
           );
         }
       }
@@ -132,7 +132,7 @@ export async function callLLMStructured<T extends JsonValue>(
  * @param prompt User prompt
  * @param system System prompt
  * @param temperature Sampling temperature
- * @param maxTokens Maximum tokens in response
+ * @param maxOutputTokens Maximum tokens in response (default 2048)
  * @param maxRetries Maximum number of retry attempts
  * @returns Response text from LLM
  * @throws LLMError if all retries fail
@@ -141,7 +141,7 @@ export async function callLLM(
   prompt: string,
   system: string,
   temperature: number = 0.0,
-  maxTokens: number = 2048,
+  maxOutputTokens: number = 2048,
   maxRetries: number = 3
 ): Promise<string> {
   const model = await getModel();
@@ -153,15 +153,15 @@ export async function callLLM(
         system,
         prompt,
         temperature,
-        maxTokens,
+        maxOutputTokens,
       });
 
       // Log token usage
       if (result.usage) {
         logger.info(
           `LLM API call successful - ` +
-            `Input: ${result.usage.promptTokens}, ` +
-            `Output: ${result.usage.completionTokens}`
+            `Input: ${result.usage.inputTokens}, ` +
+            `Output: ${result.usage.outputTokens}`
         );
       }
 

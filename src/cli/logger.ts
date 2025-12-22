@@ -71,7 +71,7 @@ export function step(current: number, total: number, message: string): void {
 /**
  * Create a spinner.
  */
-export function spinner(text: string): ora.Ora {
+export function spinner(text: string): ReturnType<typeof ora> {
   return ora({
     text,
     color: 'cyan',

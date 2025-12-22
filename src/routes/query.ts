@@ -32,7 +32,7 @@ export async function queryRoutes(fastify: FastifyInstance) {
 
   // GET /query - Convenience endpoint
   fastify.get<{
-    Querystring: { q: string; use_cache?: boolean; force_new_schema?: boolean };
+    Querystring: { q: string; use_cache?: string | boolean; force_new_schema?: string | boolean };
   }>(
     '/query',
     {

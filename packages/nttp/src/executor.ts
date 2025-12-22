@@ -3,6 +3,7 @@
  * Main orchestration pipeline for NTTP.
  */
 
+import crypto from 'crypto';
 import type { Knex } from 'knex';
 import type {
 	Intent,
@@ -79,6 +80,7 @@ export interface ExecuteOptions {
 	intent: Intent;
 	useCache: boolean;
 	forceNewSchema: boolean;
+	schemaDescription: string;
 }
 
 /**
@@ -115,7 +117,7 @@ export class QueryExecutor {
    */
   async execute(options: ExecuteOptions): Promise<ExecuteResult> {
     const startTime = Date.now();
-    const { query, intent, useCache, forceNewSchema } = options;
+    const { query, intent, useCache, forceNewSchema, schemaDescription } = options;
 
     // If v2 not enabled, fall back to v1 behavior
     if (!this.l1Cache && !this.l2Cache) {
@@ -193,7 +195,7 @@ export class QueryExecutor {
     // Cost: ~$0.01 | Latency: 2-3s
     // ─────────────────────────────────────────────────────────
     const schemaId = this.generateSchemaId(intent);
-    const { sql, params } = await this.generateSql(intent);
+    const { sql, params } = await this.generateSql(intent, schemaDescription);
     const data = await this.executeRaw(sql, params);
 
     const result: CachedResult = {
@@ -257,7 +259,7 @@ export class QueryExecutor {
    * Execute query with v1 caching (legacy).
    */
   async executeV1(options: ExecuteOptions): Promise<ExecuteResult> {
-    const { query, intent, useCache, forceNewSchema } = options;
+    const { query, intent, useCache, forceNewSchema, schemaDescription } = options;
 
     // Generate schema ID from intent
     const schemaId = this.generateSchemaId(intent);
@@ -289,7 +291,7 @@ export class QueryExecutor {
     }
 
     // Cache miss - generate and execute SQL
-    const { sql, params } = await this.generateSql(intent);
+    const { sql, params } = await this.generateSql(intent, schemaDescription);
     const data = await this.executeRaw(sql, params);
 
     // Infer schema from results
@@ -325,7 +327,10 @@ export class QueryExecutor {
   /**
    * Generate SQL query from intent.
    */
-  async generateSql(intent: Intent): Promise<{ sql: string; params: JsonValue[] }> {
+  async generateSql(
+    intent: Intent,
+    schemaDescription: string
+  ): Promise<{ sql: string; params: JsonValue[] }> {
     try {
       // Prepare intent for LLM
       const intentDict = {
@@ -337,7 +342,6 @@ export class QueryExecutor {
         sort: intent.sort,
       };
 
-      const schemaDescription = await this.getSchemaDescription();
       const systemPrompt = SQL_GENERATION_SYSTEM_PROMPT.replace(
         '{schema}',
         schemaDescription
@@ -458,31 +462,9 @@ export class QueryExecutor {
   }
 
   /**
-   * Get schema description for LLM.
-   */
-  private async getSchemaDescription(): Promise<string> {
-    const tables = await this.db
-      .select('name')
-      .from('sqlite_master')
-      .where('type', 'table')
-      .andWhere('name', 'not like', 'sqlite_%');
-
-    const lines: string[] = ['Database schema:'];
-
-    for (const { name } of tables) {
-      const columns = await this.db(name).columnInfo();
-      const columnNames = Object.keys(columns).join(', ');
-      lines.push(`- ${name} (${columnNames})`);
-    }
-
-    return lines.join('\n');
-  }
-
-  /**
    * Generate schema ID from intent (SHA256 hash).
    */
   private generateSchemaId(intent: Intent): string {
-    const crypto = require('crypto');
     const hash = crypto
       .createHash('sha256')
       .update(intent.normalized_text)

@@ -1,6 +1,6 @@
 # NTTP - Natural Text Transfer Protocol
 
-Query databases with natural language using Claude AI.
+Query databases with natural language using an LLM.
 
 ## Installation
 
@@ -34,7 +34,9 @@ const nttp = new NTTP({
     client: 'pg',
     connection: process.env.DATABASE_URL
   },
-  anthropic: {
+  llm: {
+    provider: 'anthropic',
+    model: 'claude-sonnet-4-5-20250929',
     apiKey: process.env.ANTHROPIC_API_KEY
   }
 });
@@ -63,10 +65,25 @@ Create a new NTTP instance.
     client: 'pg' | 'mysql2' | 'better-sqlite3' | 'mssql',
     connection: string | object  // Knex connection config
   },
-  anthropic: {
+  llm: {
+    provider: 'anthropic' | 'openai' | 'cohere' | 'mistral' | 'google',
+    model: string,  // e.g., 'claude-sonnet-4-5-20250929', 'gpt-4o'
     apiKey: string,
-    model?: string,  // Default: 'claude-sonnet-4-5-20250929'
     maxTokens?: number  // Default: 2048
+  },
+  cache?: {
+    l1?: {
+      enabled?: boolean,  // Default: true
+      maxSize?: number    // Default: 1000
+    },
+    l2?: {
+      enabled?: boolean,  // Default: false
+      provider?: 'openai',
+      model?: string,     // e.g., 'text-embedding-3-small'
+      apiKey?: string,
+      maxSize?: number,   // Default: 500
+      similarityThreshold?: number  // Default: 0.85
+    }
   },
   limits?: {
     maxQueryLength?: number,  // Default: 500

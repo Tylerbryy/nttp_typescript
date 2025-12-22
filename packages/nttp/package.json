@@ -1,6 +1,6 @@
 {
   "name": "nttp",
-  "version": "1.0.0",
+  "version": "1.0.5",
   "description": "natural text to query - Query databases with natural language",
   "type": "module",
   "main": "./dist/index.js",

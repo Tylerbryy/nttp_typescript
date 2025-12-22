@@ -6,7 +6,7 @@ import crypto from 'crypto';
 import type { Intent, OperationType } from './types.js';
 import { IntentParseError, LLMError } from './errors.js';
 import type { LLMService } from './llm.js';
-import type { JsonObject, FilterConditions, SortSpec } from './utils.js';
+import type { JsonObject, JsonValue, FilterConditions, SortSpec } from './utils.js';
 
 /**
  * JSON Schema for intent parsing (for structured outputs).
@@ -114,12 +114,12 @@ export class IntentParser {
       );
 
       // Call LLM to parse intent with structured outputs (guaranteed schema compliance)
-      const result = await this.llm.callStructured<RawIntent>(
+      const result = await this.llm.callStructured<JsonValue>(
         query,
         systemPrompt,
         INTENT_JSON_SCHEMA as JsonObject,
         0.0
-      );
+      ) as unknown as RawIntent;
 
       // Ensure filters is a dict (guaranteed by schema, but defensive programming)
       if (!result.filters) {

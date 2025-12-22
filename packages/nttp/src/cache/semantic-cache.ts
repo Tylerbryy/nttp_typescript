@@ -88,6 +88,7 @@ export class SemanticCache {
 
       case 'cohere': {
         try {
+          // @ts-expect-error - Optional peer dependency
           const { createCohere } = await import('@ai-sdk/cohere');
           const cohere = createCohere({
             apiKey: this.config.apiKey || process.env.COHERE_API_KEY,
@@ -103,6 +104,7 @@ export class SemanticCache {
 
       case 'mistral': {
         try {
+          // @ts-expect-error - Optional peer dependency
           const { createMistral } = await import('@ai-sdk/mistral');
           const mistral = createMistral({
             apiKey: this.config.apiKey || process.env.MISTRAL_API_KEY,
@@ -118,6 +120,7 @@ export class SemanticCache {
 
       case 'google': {
         try {
+          // @ts-expect-error - Optional peer dependency
           const { createGoogleGenerativeAI } = await import('@ai-sdk/google');
           const google = createGoogleGenerativeAI({
             apiKey: this.config.apiKey || process.env.GOOGLE_GENERATIVE_AI_API_KEY,

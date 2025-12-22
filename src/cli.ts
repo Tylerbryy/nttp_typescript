@@ -139,7 +139,12 @@ cli
         throw new Error('Server not responding. Make sure nttp is running.');
       }
 
-      const stats = await response.json();
+      const stats = await response.json() as {
+        cache: { l1: number; l2: number };
+        hitRates: { l1: number; l2: number; l3: number };
+        queries: number;
+        costSaved: number;
+      };
 
       logger.section('Cache Statistics');
       logger.newline();
@@ -212,7 +217,15 @@ cli
         throw new Error('Server not responding. Make sure nttp is running.');
       }
 
-      const result = await response.json();
+      const result = await response.json() as {
+        data: any[];
+        meta?: {
+          cacheLayer: number;
+          cost: number;
+          latency: number;
+        };
+        sql?: string;
+      };
 
       logger.section('Results');
       logger.info(`Rows: ${result.data.length}`);

@@ -22,7 +22,7 @@ import {
 } from '../types/errors.js';
 import { cache } from './cache/index.js';
 import { parseIntent, generateSchemaId } from './intent.js';
-import { generateEmbedding, findSimilar } from './embedding.js';
+import { generateEmbedding } from './embedding.js';
 
 /**
  * L2 Semantic Cache - In-memory store for query embeddings
@@ -261,12 +261,15 @@ export async function generateSql(
     };
 
     const schema = getSchemaDescription();
+    const dialect = typeof config.KNEX_CONFIG.client === 'string'
+      ? config.KNEX_CONFIG.client
+      : config.KNEX_CONFIG.client?.name || 'SQLite';
     const systemPrompt = SQL_GENERATION_SYSTEM_PROMPT.replace(
       '{schema}',
       schema
     )
       .replace('{max_limit}', String(config.MAX_LIMIT))
-      .replace('{dialect}', config.KNEX_CONFIG.client || 'SQLite');
+      .replace('{dialect}', dialect);
 
     // Call LLM to generate SQL with structured outputs (guaranteed schema compliance)
     const result = await callLLMStructured(

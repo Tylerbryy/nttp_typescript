@@ -141,7 +141,7 @@ export class LLMService {
           system: `${system}\n\nAlways respond with valid JSON only, no additional text or formatting.`,
           prompt: enhancedPrompt,
           temperature,
-          maxTokens: this.maxTokens,
+          maxOutputTokens: this.maxTokens,
         });
 
         // Parse JSON from response
@@ -191,7 +191,7 @@ export class LLMService {
           system,
           prompt,
           temperature,
-          maxTokens: this.maxTokens,
+          maxOutputTokens: this.maxTokens,
         });
 
         return result.text;

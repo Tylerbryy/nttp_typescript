@@ -11,6 +11,15 @@ import type {
 	OperationType,
 } from './utils.js';
 
+// Re-export utility types for convenience
+export type {
+	JsonValue,
+	JsonObject,
+	FilterConditions,
+	SortSpec,
+	OperationType,
+} from './utils.js';
+
 /**
  * nttp configuration
  */
