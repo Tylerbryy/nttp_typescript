@@ -1,5 +1,5 @@
 /**
- * Interactive setup wizard for NTTP.
+ * Interactive setup wizard for nttp.
  * Guides users through configuration with beautiful prompts.
  */
 
@@ -12,7 +12,12 @@ interface SetupConfig {
   databaseType: 'sqlite3' | 'pg' | 'mysql2' | 'mssql';
   databasePath?: string;
   databaseUrl?: string;
-  anthropicApiKey: string;
+  llmProvider: 'anthropic' | 'openai' | 'cohere' | 'mistral' | 'google';
+  llmModel: string;
+  llmApiKey: string;
+  embeddingProvider: 'openai' | 'cohere' | 'mistral' | 'google';
+  embeddingModel: string;
+  embeddingApiKey: string;
   port: number;
   logLevel: string;
 }
@@ -24,7 +29,7 @@ export async function runSetupWizard(): Promise<void> {
   logger.printBanner();
   logger.newline();
 
-  logger.info('Welcome to NTTP setup! Let\'s configure your database.');
+  logger.info('Welcome to nttp setup! Let\'s configure your database.');
   logger.newline();
 
   // Check if .env already exists
@@ -129,21 +134,132 @@ export async function runSetupWizard(): Promise<void> {
     config.databaseUrl = url;
   }
 
-  // Anthropic API key
-  const { apiKey } = await prompts({
-    type: 'password',
-    name: 'apiKey',
-    message: 'Anthropic API key:',
-    validate: (value: string) =>
-      value.startsWith('sk-ant-') ? true : 'API key should start with "sk-ant-"',
+  // LLM provider selection
+  const { llmProvider } = await prompts({
+    type: 'select',
+    name: 'llmProvider',
+    message: 'Which LLM provider for query parsing?',
+    choices: [
+      {
+        title: 'Anthropic (Claude) - recommended',
+        value: 'anthropic',
+        description: 'Claude Sonnet 4.5 - best reasoning',
+      },
+      {
+        title: 'OpenAI (GPT)',
+        value: 'openai',
+        description: 'GPT-4o - fast and reliable',
+      },
+      {
+        title: 'Cohere',
+        value: 'cohere',
+        description: 'Command R Plus',
+      },
+    ],
+    initial: 0,
   });
 
-  if (!apiKey) {
+  if (!llmProvider) {
     logger.error('Setup cancelled');
     return;
   }
 
-  config.anthropicApiKey = apiKey;
+  config.llmProvider = llmProvider;
+
+  // Set default model based on provider
+  const llmModels: Record<string, string> = {
+    anthropic: 'claude-sonnet-4-5-20250929',
+    openai: 'gpt-4o',
+    cohere: 'command-r-plus',
+    mistral: 'mistral-large-latest',
+    google: 'gemini-1.5-pro',
+  };
+  config.llmModel = llmModels[llmProvider];
+
+  // LLM API key
+  const llmKeyPrefixes: Record<string, string> = {
+    anthropic: 'sk-ant-',
+    openai: 'sk-',
+    cohere: 'co-',
+    mistral: 'ms-',
+    google: 'goog-',
+  };
+
+  const { llmApiKey } = await prompts({
+    type: 'password',
+    name: 'llmApiKey',
+    message: `${llmProvider.toUpperCase()} API key:`,
+    validate: (value: string) =>
+      value.startsWith(llmKeyPrefixes[llmProvider])
+        ? true
+        : `API key should start with "${llmKeyPrefixes[llmProvider]}"`,
+  });
+
+  if (!llmApiKey) {
+    logger.error('Setup cancelled');
+    return;
+  }
+
+  config.llmApiKey = llmApiKey;
+
+  // Embedding provider selection
+  const { embeddingProvider } = await prompts({
+    type: 'select',
+    name: 'embeddingProvider',
+    message: 'Which embedding provider for semantic cache?',
+    choices: [
+      {
+        title: 'OpenAI - recommended',
+        value: 'openai',
+        description: 'text-embedding-3-small - best quality/price',
+      },
+      {
+        title: 'Cohere',
+        value: 'cohere',
+        description: 'embed-english-v3.0 - fast and cheap',
+      },
+    ],
+    initial: 0,
+  });
+
+  if (!embeddingProvider) {
+    logger.error('Setup cancelled');
+    return;
+  }
+
+  config.embeddingProvider = embeddingProvider;
+
+  // Set default embedding model
+  const embeddingModels: Record<string, string> = {
+    openai: 'text-embedding-3-small',
+    cohere: 'embed-english-v3.0',
+    mistral: 'mistral-embed',
+    google: 'text-embedding-004',
+  };
+  config.embeddingModel = embeddingModels[embeddingProvider];
+
+  // Embedding API key (if different from LLM)
+  if (embeddingProvider !== llmProvider) {
+    const { embeddingApiKey } = await prompts({
+      type: 'password',
+      name: 'embeddingApiKey',
+      message: `${embeddingProvider.toUpperCase()} API key for embeddings:`,
+      validate: (value: string) =>
+        value.startsWith(llmKeyPrefixes[embeddingProvider])
+          ? true
+          : `API key should start with "${llmKeyPrefixes[embeddingProvider]}"`,
+    });
+
+    if (!embeddingApiKey) {
+      logger.error('Setup cancelled');
+      return;
+    }
+
+    config.embeddingApiKey = embeddingApiKey;
+  } else {
+    // Reuse LLM API key
+    config.embeddingApiKey = llmApiKey;
+  }
 
   // Optional: Port configuration
   const { customizePort } = await prompts({
@@ -187,7 +303,7 @@ export async function runSetupWizard(): Promise<void> {
 
   logger.newline();
   logger.successBox(
-    `Configuration saved to .env!\n\nYou're ready to start NTTP.`,
+    `Configuration saved to .env!\n\nYou're ready to start nttp.`,
     '✨ Setup Complete'
   );
 
@@ -225,14 +341,35 @@ function getDefaultConnectionString(dbType: string): string {
  */
 function generateEnvFile(config: SetupConfig): string {
   const lines = [
-    '# NTTP Configuration',
+    '# nttp configuration',
     '# Generated by setup wizard',
     '',
-    `ANTHROPIC_API_KEY=${config.anthropicApiKey}`,
+    '# LLM Provider Configuration',
+    `LLM_PROVIDER=${config.llmProvider}`,
+    `LLM_MODEL=${config.llmModel}`,
+  ];
+
+  // Add appropriate API key based on provider
+  const apiKeyNames: Record<string, string> = {
+    anthropic: 'ANTHROPIC_API_KEY',
+    openai: 'OPENAI_API_KEY',
+    cohere: 'COHERE_API_KEY',
+    mistral: 'MISTRAL_API_KEY',
+    google: 'GOOGLE_API_KEY',
+  };
+
+  lines.push(`${apiKeyNames[config.llmProvider]}=${config.llmApiKey}`);
+
+  // Add embedding API key if different
+  if (config.embeddingProvider !== config.llmProvider) {
+    lines.push(`${apiKeyNames[config.embeddingProvider]}=${config.embeddingApiKey}`);
+  }
+
+  lines.push(
     '',
     '# Database Configuration',
     `DATABASE_TYPE=${config.databaseType}`,
-  ];
+  );
 
   if (config.databasePath) {
     lines.push(`DATABASE_PATH=${config.databasePath}`);
@@ -245,12 +382,16 @@ function generateEnvFile(config: SetupConfig): string {
     '# Server Configuration',
     `PORT=${config.port}`,
     `LOG_LEVEL=${config.logLevel}`,
-    '',
-    '# Claude Configuration',
-    'CLAUDE_MODEL=claude-sonnet-4-5-20250929',
     'MAX_QUERY_LENGTH=500',
     'DEFAULT_LIMIT=100',
-    'MAX_LIMIT=1000'
+    'MAX_LIMIT=1000',
+    '',
+    '# 3-Layer Cache Configuration',
+    `EMBEDDING_PROVIDER=${config.embeddingProvider}`,
+    `EMBEDDING_MODEL=${config.embeddingModel}`,
+    'L1_CACHE_SIZE=1000',
+    'L2_CACHE_SIZE=500',
+    'SIMILARITY_THRESHOLD=0.85'
   );
 
   return lines.join('\n') + '\n';

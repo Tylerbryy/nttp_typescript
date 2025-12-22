@@ -67,13 +67,28 @@ npm install nttp
 ```
 
 ```typescript
-import { nttp } from 'nttp';
+import { NTTP } from 'nttp';
 
-const db = nttp({
-  database: process.env.DATABASE_URL,
-  anthropic: process.env.ANTHROPIC_API_KEY,
-  openai: process.env.OPENAI_API_KEY,  // for embeddings
+const db = new NTTP({
+  database: {
+    client: 'pg',
+    connection: process.env.DATABASE_URL,
+  },
+  llm: {
+    provider: 'anthropic',
+    model: 'claude-sonnet-4-5-20250929',
+    apiKey: process.env.ANTHROPIC_API_KEY,
+  },
+  cache: {
+    l2: {
+      provider: 'openai',
+      model: 'text-embedding-3-small',
+      apiKey: process.env.OPENAI_API_KEY,
+    },
+  },
 });
+
+await db.init();
 
 const users = await db.query("active users from California");
 const orders = await db.query("orders over $500 this month");
@@ -89,9 +104,22 @@ import { nttpPlugin } from 'nttp/fastify';
 const app = Fastify();
 
 await app.register(nttpPlugin, {
-  database: process.env.DATABASE_URL,
-  anthropic: process.env.ANTHROPIC_API_KEY,
-  openai: process.env.OPENAI_API_KEY,
+  database: {
+    client: 'pg',
+    connection: process.env.DATABASE_URL,
+  },
+  llm: {
+    provider: 'anthropic',
+    model: 'claude-sonnet-4-5-20250929',
+    apiKey: process.env.ANTHROPIC_API_KEY,
+  },
+  cache: {
+    l2: {
+      provider: 'openai',
+      model: 'text-embedding-3-small',
+      apiKey: process.env.OPENAI_API_KEY,
+    },
+  },
 });
 
 await app.listen({ port: 8000 });
@@ -184,36 +212,101 @@ After warmup: **90%+ queries hit L1/L2**.
 ## Configuration
 
 ```typescript
-nttp({
+new NTTP({
   // Database (required)
-  database: 'postgresql://...',  // or connection object
-  
+  database: {
+    client: 'pg',  // or 'better-sqlite3', 'mysql2', 'mssql'
+    connection: 'postgresql://...',
+  },
+
   // LLM for intent parsing (required)
-  anthropic: 'sk-ant-...',
-  
-  // Embeddings for semantic cache (required)
-  openai: 'sk-...',  // or cohere, mistral, google
-  
-  // Options
-  similarity: 0.92,  // L2 threshold (default: 0.92)
-  readonly: true,    // Block writes (default: true)
+  llm: {
+    provider: 'anthropic',  // or 'openai', 'cohere', 'mistral', 'google'
+    model: 'claude-sonnet-4-5-20250929',
+    apiKey: 'sk-ant-...',
+  },
+
+  // 3-layer cache configuration
+  cache: {
+    l1: {
+      enabled: true,      // Exact match cache (default: true)
+      maxSize: 1000,      // Max entries (default: 1000)
+    },
+    l2: {
+      enabled: true,      // Semantic cache (default: true)
+      provider: 'openai', // or 'cohere', 'mistral', 'google'
+      model: 'text-embedding-3-small',
+      apiKey: 'sk-...',
+      threshold: 0.85,    // Similarity threshold (default: 0.85)
+      maxSize: 500,       // Max entries (default: 500)
+    },
+  },
 });
+```
+
+### LLM Providers
+
+```typescript
+// Anthropic (default)
+llm: {
+  provider: 'anthropic',
+  model: 'claude-sonnet-4-5-20250929',
+  apiKey: 'sk-ant-...',
+}
+
+// OpenAI
+llm: {
+  provider: 'openai',
+  model: 'gpt-4o',
+  apiKey: 'sk-...',
+}
+
+// Cohere
+llm: {
+  provider: 'cohere',
+  model: 'command-r-plus',
+  apiKey: 'co-...',
+}
 ```
 
 ### Embedding Providers
 
 ```typescript
 // OpenAI (default)
-openai: 'sk-...'
+cache: {
+  l2: {
+    provider: 'openai',
+    model: 'text-embedding-3-small',
+    apiKey: 'sk-...',
+  }
+}
 
 // Cohere
-cohere: 'co-...'
+cache: {
+  l2: {
+    provider: 'cohere',
+    model: 'embed-english-v3.0',
+    apiKey: 'co-...',
+  }
+}
 
-// Mistral  
-mistral: 'ms-...'
+// Mistral
+cache: {
+  l2: {
+    provider: 'mistral',
+    model: 'mistral-embed',
+    apiKey: 'ms-...',
+  }
+}
 
 // Google
-google: 'goog-...'
+cache: {
+  l2: {
+    provider: 'google',
+    model: 'text-embedding-004',
+    apiKey: 'goog-...',
+  }
+}
 ```
 
 ---
