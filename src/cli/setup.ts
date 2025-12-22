@@ -92,14 +92,32 @@ export async function runSetupWizard(): Promise<void> {
 
     // Offer to create sample database
     const { createSample } = await prompts({
-      type: 'confirm',
+      type: 'select',
       name: 'createSample',
-      message: 'Create sample database with test data?',
-      initial: true,
+      message: 'Create sample e-commerce database?',
+      choices: [
+        {
+          title: 'Yes, full dataset (10k users, 5k products, 50k orders) ~60MB',
+          value: 'full',
+          description: 'Rich dataset for realistic testing',
+        },
+        {
+          title: 'Yes, small dataset (100 users, 50 products, 200 orders) ~1MB',
+          value: 'small',
+          description: 'Quick setup for development',
+        },
+        {
+          title: 'No, I have my own database',
+          value: 'none',
+        },
+      ],
+      initial: 0,
     });
 
-    if (createSample) {
-      await createSampleDatabase(path);
+    if (createSample === 'full') {
+      await createRichDatabase(path, 'full');
+    } else if (createSample === 'small') {
+      await createRichDatabase(path, 'small');
     }
   } else {
     const { url } = await prompts({
@@ -239,79 +257,43 @@ function generateEnvFile(config: SetupConfig): string {
 }
 
 /**
- * Create sample SQLite database with test data.
+ * Create rich e-commerce database with realistic data.
  */
-async function createSampleDatabase(path: string): Promise<void> {
-  const spinner = logger.spinner('Creating sample database...');
-
+async function createRichDatabase(path: string, size: 'full' | 'small'): Promise<void> {
   try {
-    const Database = (await import('better-sqlite3')).default;
-    const db = new Database(path);
+    const { seedRichDatabase } = await import('./seed-database.js');
 
-    // Create tables
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY,
-        name TEXT NOT NULL,
-        email TEXT UNIQUE,
-        status TEXT DEFAULT 'active',
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP
-      );
+    const counts =
+      size === 'full'
+        ? {
+            users: 10000,
+            products: 5000,
+            orders: 50000,
+            reviews: 25000,
+          }
+        : {
+            users: 100,
+            products: 50,
+            orders: 200,
+            reviews: 150,
+          };
 
-      CREATE TABLE IF NOT EXISTS products (
-        id INTEGER PRIMARY KEY,
-        name TEXT NOT NULL,
-        price REAL,
-        category TEXT,
-        stock INTEGER DEFAULT 0
-      );
+    await seedRichDatabase(path, counts);
 
-      CREATE TABLE IF NOT EXISTS orders (
-        id INTEGER PRIMARY KEY,
-        user_id INTEGER,
-        total REAL,
-        status TEXT DEFAULT 'pending',
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id)
-      );
-    `);
-
-    // Insert sample data
-    db.exec(`
-      INSERT INTO users (name, email, status) VALUES
-        ('Alice Johnson', 'alice@example.com', 'active'),
-        ('Bob Smith', 'bob@example.com', 'active'),
-        ('Charlie Brown', 'charlie@example.com', 'suspended'),
-        ('Diana Prince', 'diana@example.com', 'active');
-
-      INSERT INTO products (name, price, category, stock) VALUES
-        ('Laptop', 999.99, 'Electronics', 15),
-        ('Mouse', 29.99, 'Electronics', 50),
-        ('Desk Chair', 199.99, 'Furniture', 8),
-        ('Coffee Mug', 12.99, 'Kitchen', 100),
-        ('Monitor', 349.99, 'Electronics', 12);
-
-      INSERT INTO orders (user_id, total, status) VALUES
-        (1, 1029.98, 'completed'),
-        (2, 12.99, 'pending'),
-        (1, 549.98, 'completed'),
-        (3, 199.99, 'cancelled'),
-        (4, 999.99, 'pending');
-    `);
-
-    db.close();
-
-    spinner.succeed('Sample database created with test data!');
     logger.newline();
-    logger.info('Sample data includes:');
-    logger.success('4 users (3 active, 1 suspended)');
-    logger.success('5 products across categories');
-    logger.success('5 orders with different statuses');
-  } catch (error) {
-    spinner.fail('Failed to create sample database');
+    logger.info('Sample queries to try:');
+    logger.code(
+      `"top 10 customers by total spend"\n` +
+        `"products with 4+ star ratings under $100"\n` +
+        `"orders from California in the last 30 days"\n` +
+        `"most reviewed products in Electronics"\n` +
+        `"pending orders over $500"`,
+      'natural language'
+    );
+  } catch (error: any) {
     logger.error(
-      'Could not create sample database',
-      'You can create it manually or connect to an existing database'
+      'Failed to create sample database',
+      error.message || 'You can create it manually or connect to an existing database'
     );
   }
 }
