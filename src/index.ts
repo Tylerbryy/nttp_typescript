@@ -7,7 +7,7 @@ import cors from '@fastify/cors';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import { initDb, closeDb } from './services/database.js';
-import { logger } from './utils/logger.js';
+import { logger, loggerConfig } from './utils/logger.js';
 import { queryRoutes } from './routes/query.js';
 import { schemaRoutes } from './routes/schemas.js';
 import { utilityRoutes } from './routes/utility.js';
@@ -23,7 +23,7 @@ import {
  * Create and configure Fastify server.
  */
 const fastify = Fastify({
-  logger: logger,
+  logger: loggerConfig,
 });
 
 /**

@@ -13,14 +13,14 @@ const successGradient = gradient(['#00ff88', '#00cc77']);
 const errorGradient = gradient(['#ff4444', '#cc0000']);
 
 /**
- * Print NTTP banner.
+ * Print nttp banner.
  */
 export function printBanner(): void {
   const banner = `
 ╔═══════════════════════════════════════╗
 ║                                       ║
-║   ${coolGradient('NTTP - Natural Text Transfer')}    ║
-║   ${coolGradient('Protocol')}                         ║
+║   ${coolGradient('nttp')}                             ║
+║   ${chalk.gray('natural text to query')}             ║
 ║                                       ║
 ║   ${chalk.gray('Query databases with natural')}      ║
 ║   ${chalk.gray('language, powered by Claude AI')}    ║
