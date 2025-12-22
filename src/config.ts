@@ -60,6 +60,21 @@ const ConfigSchema = z.object({
   L1_CACHE_SIZE: z.coerce.number().int().positive().default(1000),
   L2_CACHE_SIZE: z.coerce.number().int().positive().default(500),
   SIMILARITY_THRESHOLD: z.coerce.number().min(0).max(1).default(0.85),
+
+  // Optional Redis L1 Cache
+  REDIS_URL: z
+    .string()
+    .url()
+    .optional()
+    .describe(
+      'Connection string for Redis L1 Cache (e.g. redis://localhost:6379)'
+    ),
+
+  // Optional LanceDB Path for L2 Vector Store
+  LANCEDB_PATH: z
+    .string()
+    .default('./.nttp/vectors')
+    .describe('Path to store vector embeddings'),
 });
 
 /**

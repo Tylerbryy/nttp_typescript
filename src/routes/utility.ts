@@ -3,7 +3,7 @@
  */
 
 import { FastifyInstance } from 'fastify';
-import { cache } from '../services/schema-cache.js';
+import { cache } from '../services/cache/index.js';
 import { parseIntent, generateSchemaId } from '../services/intent.js';
 import { generateSql, getSemanticCacheStats } from '../services/executor.js';
 import { getAllTables } from '../services/database.js';
@@ -69,6 +69,7 @@ export async function utilityRoutes(fastify: FastifyInstance) {
   fastify.get('/stats', async () => {
     const l1Stats = await cache.getStats();
     const l2Stats = getSemanticCacheStats();
+    const cacheType = cache.getType();
 
     // Calculate total queries and hits across all layers
     const l1Hits = l1Stats.total_uses;
@@ -80,6 +81,7 @@ export async function utilityRoutes(fastify: FastifyInstance) {
     return {
       cache: {
         l1: {
+          type: cacheType,
           total_schemas: l1Stats.total_schemas,
           pinned_schemas: l1Stats.pinned_schemas,
           hit_count: l1Hits,

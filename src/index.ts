@@ -6,7 +6,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
-import { initDb, closeDb } from './services/database.js';
+import { initDb, closeDb, getAllTables } from './services/database.js';
 import { logger, loggerConfig } from './utils/logger.js';
 import { queryRoutes } from './routes/query.js';
 import { schemaRoutes } from './routes/schemas.js';
@@ -108,6 +108,26 @@ fastify.setErrorHandler((error, request, reply) => {
 fastify.addHook('onReady', async () => {
   logger.info('Starting NTTP API server...');
   await initDb();
+
+  // Validate database has tables
+  const tables = await getAllTables();
+  if (tables.length === 0) {
+    logger.error('❌ Database is empty - no tables found!');
+    logger.error('');
+    logger.error('Please set up your database first:');
+    logger.error('');
+    logger.error('  Option 1 (Recommended): Run the setup wizard');
+    logger.error('    $ npm run setup');
+    logger.error('');
+    logger.error('  Option 2: Check database configuration');
+    logger.error('    $ npm run doctor');
+    logger.error('');
+    logger.error('  Option 3: Connect to an existing database');
+    logger.error('    Update DATABASE_PATH or DATABASE_URL in your .env file');
+    logger.error('');
+    throw new Error('Database validation failed: No tables found');
+  }
+
   logger.info('Database initialized');
 });
 

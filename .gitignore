@@ -20,6 +20,9 @@ build/
 *.sqlite
 *.sqlite3
 
+# Vector store (LanceDB)
+.nttp/
+
 # Test files
 test-*.ts
 demo.ts

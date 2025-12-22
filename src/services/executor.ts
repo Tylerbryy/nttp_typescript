@@ -20,7 +20,7 @@ import {
   SQLExecutionError,
   LLMError,
 } from '../types/errors.js';
-import { cache } from './schema-cache.js';
+import { cache } from './cache/index.js';
 import { parseIntent, generateSchemaId } from './intent.js';
 import { generateEmbedding, findSimilar } from './embedding.js';
 

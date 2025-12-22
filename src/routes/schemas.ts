@@ -3,7 +3,7 @@
  */
 
 import { FastifyInstance } from 'fastify';
-import { cache } from '../services/schema-cache.js';
+import { cache } from '../services/cache/index.js';
 
 export async function schemaRoutes(fastify: FastifyInstance) {
   // Common params schema for Swagger documentation
