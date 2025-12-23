@@ -24,7 +24,7 @@ export class ExactCache {
   /**
    * Get cached result for a query
    */
-  get(query: string): CachedResult | null {
+  async get(query: string): Promise<CachedResult | null> {
     const key = this.normalizeQuery(query);
     const result = this.cache.get(key);
 
@@ -44,7 +44,7 @@ export class ExactCache {
   /**
    * Set cached result for a query
    */
-  set(query: string, result: CachedResult): void {
+  async set(query: string, result: CachedResult): Promise<void> {
     const key = this.normalizeQuery(query);
 
     // Evict if at max size
@@ -59,7 +59,7 @@ export class ExactCache {
   /**
    * Clear all cached results
    */
-  clear(): void {
+  async clear(): Promise<void> {
     this.cache.clear();
     this.accessOrder.clear();
     this.accessCounter = 0;
@@ -70,7 +70,7 @@ export class ExactCache {
   /**
    * Get cache statistics
    */
-  getStats(): LayerStats {
+  async getStats(): Promise<LayerStats> {
     return {
       size: this.cache.size,
       hits: this.hits,

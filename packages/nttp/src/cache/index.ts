@@ -4,6 +4,7 @@
  */
 
 export { ExactCache } from './exact-cache.js';
+export { RedisExactCache } from './redis-exact-cache.js';
 export { SemanticCache } from './semantic-cache.js';
 export type {
   CachedResult,

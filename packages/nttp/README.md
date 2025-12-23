@@ -99,6 +99,9 @@ Create a new NTTP instance.
       apiKey?: string,
       maxSize?: number,   // Default: 500
       similarityThreshold?: number  // Default: 0.85
+    },
+    redis?: {
+      url: string  // Redis connection URL for L1 cache persistence
     }
   },
   limits?: {
@@ -241,6 +244,47 @@ NTTP works with any SQL database supported by Knex.js:
 - **Cache Miss**: ~2-3s (LLM call)
 - **Throughput**: >10,000 req/s (cached)
 
+## Cache Persistence with Redis
+
+By default, L1 cache uses in-memory storage that resets on each process restart. For production deployments or CLI usage, enable Redis to persist cache across invocations:
+
+```typescript
+const nttp = new NTTP({
+  database: {
+    client: 'pg',
+    connection: process.env.DATABASE_URL
+  },
+  llm: {
+    provider: 'anthropic',
+    model: 'claude-sonnet-4-5-20250929',
+    apiKey: process.env.ANTHROPIC_API_KEY
+  },
+  cache: {
+    redis: {
+      url: 'redis://localhost:6379'
+    }
+  }
+});
+```
+
+Or via environment variables with `NTTP.fromEnv()`:
+
+```bash
+# .env file
+REDIS_URL=redis://localhost:6379
+```
+
+**Benefits:**
+- ✅ Cache persists across CLI invocations
+- ✅ Shared cache in multi-instance deployments
+- ✅ Reduced cold-start latency
+- ✅ 24-hour TTL for cached entries
+
+**Performance with Redis:**
+- L1 cache hit: ~5ms (vs <1ms in-memory)
+- Still 400x faster than LLM call
+- Negligible latency increase for significant persistence benefits
+
 ## CLI Commands
 
 ### `npx nttp setup`
@@ -250,6 +294,7 @@ Beautiful interactive setup wizard (powered by Ink) with Vercel-inspired DX:
 - Choose database type (PostgreSQL, MySQL, SQLite, SQL Server)
 - Configure connection details
 - Select LLM provider (Anthropic, OpenAI, Cohere, Mistral, Google)
+- Optional: Enable Redis cache (L1 persistence)
 - Optional: Enable semantic caching (L2 cache)
 - Automatically installs dependencies
 - Creates `.env` file

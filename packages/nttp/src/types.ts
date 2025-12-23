@@ -139,6 +139,17 @@ export interface NTTPConfig {
        */
       apiKey?: string;
     };
+
+    /**
+     * Redis configuration for L1 cache persistence
+     */
+    redis?: {
+      /**
+       * Redis connection URL
+       * @example "redis://localhost:6379"
+       */
+      url: string;
+    };
   };
 }
 

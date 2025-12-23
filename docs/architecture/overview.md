@@ -52,9 +52,10 @@ nttp uses a 3-layer cache. Each layer is progressively more expensive:
 │                    nttp                             │
 ├─────────────────────────────────────────────────────┤
 │                                                     │
-│  L1: EXACT MATCH                                    │
+│  L1: EXACT MATCH (In-Memory or Redis)               │
 │  Hash(query) → cached result                        │
-│  Cost: $0 | Latency: <1ms                           │
+│  Cost: $0 | Latency: <1ms (memory) or ~5ms (Redis)  │
+│  Redis: Persists across restarts & multi-instance   │
 │                                                     │
 │  L2: SEMANTIC MATCH                                 │
 │  embed(query) → cosine similarity → cached result   │
@@ -77,16 +78,36 @@ Queries cascade through layers. Most hit L1 or L2 after warmup.
 
 Simple hash lookup. If you've asked this exact question before, return instantly.
 
+**In-Memory (default):**
 ```typescript
 class ExactCache {
   private cache = new Map<string, CachedResult>();
-  
-  get(query: string): CachedResult | null {
+
+  async get(query: string): Promise<CachedResult | null> {
     const key = query.toLowerCase().trim();
     return this.cache.get(key) ?? null;
   }
 }
 ```
+
+**Redis (persistent):**
+```typescript
+import Redis from 'ioredis';
+
+class RedisExactCache {
+  private redis: Redis;
+
+  async get(query: string): Promise<CachedResult | null> {
+    const cached = await this.redis.get(`nttp:l1:${query}`);
+    return cached ? JSON.parse(cached) : null;
+  }
+}
+```
+
+**When to use Redis:**
+- CLI usage (cache persists across `npx nttp query` invocations)
+- Multi-instance deployments (shared cache)
+- Production servers (survives restarts)
 
 ### Layer 2: Semantic Match
 
@@ -265,24 +286,39 @@ Clear specific cache entry.
 import { openai } from '@ai-sdk/openai';
 
 export const config = {
+  cache: {
+    redis: {
+      url: process.env.REDIS_URL,  // Optional: Enable L1 persistence
+    },
+  },
+
   embedding: {
     model: openai.embeddingModel('text-embedding-3-small'),
     threshold: 0.92,
   },
-  
+
   llm: {
     model: 'claude-sonnet-4-20250514',
   },
-  
+
   database: {
     type: 'postgresql',  // or sqlite, mysql, mssql
     connectionString: process.env.DATABASE_URL,
   },
-  
+
   server: {
     port: 8000,
   },
 };
+```
+
+**Environment Variables:**
+```bash
+# .env
+DATABASE_URL=postgresql://...
+ANTHROPIC_API_KEY=sk-...
+OPENAI_API_KEY=sk-...
+REDIS_URL=redis://localhost:6379  # Optional: L1 cache persistence
 ```
 
 ### Embedding Models
@@ -312,7 +348,8 @@ nttp stats      # Cache statistics
 
 | Layer | Latency | Cost | When |
 |-------|---------|------|------|
-| L1 | <1ms | $0 | Exact query match |
+| L1 (In-Memory) | <1ms | $0 | Exact query match |
+| L1 (Redis) | ~5ms | $0 | Exact query match (persistent) |
 | L2 | 50-100ms | ~$0.0001 | Similar phrasing |
 | L3 | 2-3s | ~$0.01 | Novel query |
 

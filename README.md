@@ -41,10 +41,12 @@ nttp uses **semantic caching**. Similar questions reuse cached results:
 3-layer cache. Queries cascade through increasingly expensive layers:
 
 ```
-L1: EXACT       Hash match         $0        <1ms
+L1: EXACT       Hash match         $0        <1ms (in-memory) or ~5ms (Redis)
 L2: SEMANTIC    Embedding match    $0.0001   80ms
 L3: LLM         Claude API         $0.01     2-3s
 ```
+
+**L1 Persistence**: Use Redis to persist exact matches across restarts (recommended for production and CLI).
 
 Most queries hit L1 or L2. Only novel queries reach the LLM.
 
@@ -80,6 +82,9 @@ const db = new NTTP({
     apiKey: process.env.ANTHROPIC_API_KEY,
   },
   cache: {
+    redis: {
+      url: process.env.REDIS_URL,  // Optional: L1 persistence
+    },
     l2: {
       provider: 'openai',
       model: 'text-embedding-3-small',
@@ -114,6 +119,9 @@ await app.register(nttpPlugin, {
     apiKey: process.env.ANTHROPIC_API_KEY,
   },
   cache: {
+    redis: {
+      url: process.env.REDIS_URL,  // Optional: L1 persistence
+    },
     l2: {
       provider: 'openai',
       model: 'text-embedding-3-small',

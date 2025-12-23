@@ -21,6 +21,17 @@ export async function runQuery(
     // Execute query
     spinner.start('Executing query...');
     const result = await nttp.query(text);
+
+    if (!result) {
+      throw new Error('Query returned null or undefined');
+    }
+
+    if (!result.data) {
+      throw new Error(
+        `Query returned invalid data. Result keys: ${Object.keys(result).join(', ')}`
+      );
+    }
+
     spinner.succeed(
       `Query complete (${result.data.length} rows in ${result.executionTimeMs}ms)`
     );
@@ -44,6 +55,11 @@ export async function runQuery(
     spinner.fail('Query failed');
     const err = error as Error;
     console.error(chalk.red(`\n${err.message}\n`));
+
+    // Add stack trace for debugging
+    if (err.stack) {
+      console.error(chalk.gray(err.stack));
+    }
 
     if (!process.env.DATABASE_URL && !process.env.DATABASE_PATH) {
       console.log(chalk.yellow('💡 Tip: Run "npx nttp setup" first\n'));

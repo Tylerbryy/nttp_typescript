@@ -17,7 +17,7 @@ import { SchemaCache } from './cache.js';
 import { LLMService } from './llm.js';
 import { IntentParser } from './intent.js';
 import { QueryExecutor } from './executor.js';
-import { ExactCache, SemanticCache } from './cache/index.js';
+import { ExactCache, RedisExactCache, SemanticCache } from './cache/index.js';
 import {
   validateDatabaseClient,
   validateConnection,
@@ -61,7 +61,7 @@ export class NTTP {
   private schemaInfo: Record<string, { columns: string[]; description: string }> = {};
 
   // 3-layer caches
-  private l1Cache?: ExactCache;
+  private l1Cache?: ExactCache | RedisExactCache;
   private l2Cache?: SemanticCache;
 
   constructor(private config: NTTPConfig) {
@@ -95,7 +95,12 @@ export class NTTP {
 
     // Initialize 3-layer caches
     if (config.cache?.l1?.enabled !== false) {
-      this.l1Cache = new ExactCache(config.cache?.l1?.maxSize);
+      // Use Redis cache if configured, otherwise use in-memory cache
+      if ((config.cache as any)?.redis?.url) {
+        this.l1Cache = new RedisExactCache((config.cache as any).redis.url);
+      } else {
+        this.l1Cache = new ExactCache(config.cache?.l1?.maxSize);
+      }
     }
     if (config.cache?.l2?.enabled !== false && config.cache?.l2) {
       this.l2Cache = new SemanticCache(config.cache.l2);
@@ -165,6 +170,15 @@ export class NTTP {
       },
     };
 
+    // Optional: Redis L1 cache configuration
+    const redisUrl = process.env.REDIS_URL;
+    if (redisUrl) {
+      config.cache = {
+        ...config.cache,
+        redis: { url: redisUrl },
+      };
+    }
+
     // Optional: L2 cache configuration
     const embeddingProvider = process.env.EMBEDDING_PROVIDER;
     if (embeddingProvider === 'openai' || embeddingProvider === 'cohere') {
@@ -175,12 +189,13 @@ export class NTTP {
 
       if (embeddingApiKey) {
         config.cache = {
+          ...config.cache,
           l2: {
             provider: embeddingProvider,
             model:
               embeddingProvider === 'openai'
                 ? 'text-embedding-3-small'
-                : 'embed-english-v3.0',
+                : 'embed-v4.0',
             apiKey: embeddingApiKey,
           },
         };
@@ -308,7 +323,7 @@ export class NTTP {
    * Get cache statistics.
    */
   async getCacheStats(): Promise<CacheStats> {
-    const l1Stats = this.l1Cache?.getStats() ?? { size: 0, hits: 0, misses: 0 };
+    const l1Stats = this.l1Cache ? await this.l1Cache.getStats() : { size: 0, hits: 0, misses: 0 };
     const l2Stats = this.l2Cache?.getStats() ?? { size: 0, hits: 0, misses: 0 };
 
     const totalQueries = l1Stats.hits + l1Stats.misses;
@@ -367,6 +382,10 @@ export class NTTP {
    * Close database connection and cleanup.
    */
   async close(): Promise<void> {
+    // Close Redis connection if using RedisExactCache
+    if (this.l1Cache && this.l1Cache instanceof RedisExactCache) {
+      await this.l1Cache.close();
+    }
     await this.db.destroy();
   }
 

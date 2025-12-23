@@ -20,7 +20,7 @@ import {
 } from './errors.js';
 import type { LLMService } from './llm.js';
 import type { SchemaCache } from './cache.js';
-import type { ExactCache, SemanticCache } from './cache/index.js';
+import type { ExactCache, RedisExactCache, SemanticCache } from './cache/index.js';
 import type { CachedResult } from './cache/types.js';
 import type { JsonObject, JsonValue } from './utils.js';
 
@@ -108,7 +108,7 @@ export class QueryExecutor {
     private db: Knex,
     private llm: LLMService,
     private cache: SchemaCache,
-    private l1Cache?: ExactCache,
+    private l1Cache?: ExactCache | RedisExactCache,
     private l2Cache?: SemanticCache
   ) {}
 
@@ -126,10 +126,10 @@ export class QueryExecutor {
 
     // ─────────────────────────────────────────────────────────
     // L1: EXACT MATCH (hash-based cache)
-    // Cost: $0.00 | Latency: <1ms
+    // Cost: $0.00 | Latency: <1ms (in-memory) or ~5ms (Redis)
     // ─────────────────────────────────────────────────────────
     if (this.l1Cache && useCache && !forceNewSchema) {
-      const l1Hit = this.l1Cache.get(query);
+      const l1Hit = await this.l1Cache.get(query);
       if (l1Hit) {
         const data = await this.executeRaw(l1Hit.sql, l1Hit.params);
         const meta: L1CacheMeta = {
@@ -167,7 +167,7 @@ export class QueryExecutor {
 
         // Promote to L1 for future exact matches
         if (this.l1Cache) {
-          this.l1Cache.set(query, match.result);
+          await this.l1Cache.set(query, match.result);
         }
 
         const meta: L2CacheMeta = {
@@ -209,7 +209,7 @@ export class QueryExecutor {
 
     // Populate both L1 and L2 caches
     if (this.l1Cache) {
-      this.l1Cache.set(query, result);
+      await this.l1Cache.set(query, result);
     }
 
     if (this.l2Cache) {

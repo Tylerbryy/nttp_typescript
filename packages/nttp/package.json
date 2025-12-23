@@ -1,6 +1,6 @@
 {
   "name": "nttp",
-  "version": "1.2.0",
+  "version": "1.4.6",
   "description": "natural text to query - Query databases with natural language",
   "type": "module",
   "main": "./dist/index.js",
@@ -20,7 +20,8 @@
   ],
   "scripts": {
     "build": "tsc",
-    "dev": "tsc --watch"
+    "dev": "tsc --watch",
+    "bump": "npm version patch --no-git-tag-version && node -e \"const fs=require('fs');const pkg=require('./package.json');const cli=fs.readFileSync('src/cli.ts','utf8');fs.writeFileSync('src/cli.ts',cli.replace(/\\.version\\('.*?'\\)/,\\`.version('\\${pkg.version}'\\)\\`))\" && npm run build"
   },
   "keywords": [
     "nttp",
@@ -44,8 +45,10 @@
   },
   "homepage": "https://github.com/tylergibbs/nttp#readme",
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.0",
     "@ai-sdk/openai": "^3.0.0",
     "ai": "^6.0.0",
+    "better-sqlite3": "^9.6.0",
     "boxen": "^8.0.1",
     "chalk": "^5.6.2",
     "commander": "^14.0.2",
@@ -54,40 +57,23 @@
     "ink-select-input": "^6.2.0",
     "ink-spinner": "^5.0.0",
     "ink-text-input": "^6.0.0",
+    "ioredis": "^5.8.2",
     "knex": "^3.1.0",
     "knex-schema-inspector": "^3.1.0",
+    "mssql": "^11.0.1",
+    "mysql2": "^3.11.5",
     "ora": "^9.0.0",
+    "pg": "^8.13.1",
     "prompts": "^2.4.2",
     "react": "^19.2.3",
     "zod": "^3.23.8",
     "zod-to-json-schema": "^3.23.0"
   },
   "peerDependencies": {
-    "@ai-sdk/anthropic": "^3.0.0",
-    "@ai-sdk/cohere": "^2.0.0",
     "@ai-sdk/google-vertex": "^1.0.0",
-    "@ai-sdk/mistral": "^1.0.0",
-    "better-sqlite3": "^9.6.0",
-    "mssql": "^11.0.1",
-    "mysql2": "^3.11.5",
-    "pg": "^8.13.1"
+    "@ai-sdk/mistral": "^1.0.0"
   },
   "peerDependenciesMeta": {
-    "better-sqlite3": {
-      "optional": true
-    },
-    "pg": {
-      "optional": true
-    },
-    "mysql2": {
-      "optional": true
-    },
-    "mssql": {
-      "optional": true
-    },
-    "@ai-sdk/anthropic": {
-      "optional": true
-    },
     "@ai-sdk/cohere": {
       "optional": true
     },

@@ -7,8 +7,8 @@ import { Box, Text, Newline } from 'ink';
 import TextInput from 'ink-text-input';
 import SelectInput from 'ink-select-input';
 import Spinner from 'ink-spinner';
+import { writeFileSync, existsSync } from 'fs';
 import { execSync } from 'child_process';
-import { writeFileSync } from 'fs';
 
 interface SetupConfig {
   databaseType?: 'pg' | 'mysql2' | 'better-sqlite3' | 'mssql';
@@ -17,8 +17,10 @@ interface SetupConfig {
   llmProvider?: 'anthropic' | 'openai' | 'cohere' | 'mistral' | 'google';
   llmModel?: string;
   llmApiKey?: string;
+  enableRedisCache?: boolean;
+  redisUrl?: string;
   enableL2Cache?: boolean;
-  embeddingProvider?: 'openai' | 'cohere';
+  embeddingProvider?: 'openai';
   embeddingApiKey?: string;
 }
 
@@ -29,8 +31,9 @@ type Step =
   | 'llm-provider'
   | 'llm-model'
   | 'llm-api-key'
+  | 'redis-cache'
+  | 'redis-url'
   | 'l2-cache'
-  | 'embedding-provider'
   | 'embedding-api-key'
   | 'installing'
   | 'complete';
@@ -110,62 +113,78 @@ export default function SetupWizard() {
   const handleLLMApiKey = () => {
     setConfig({ ...config, llmApiKey: input });
     setInput('');
+    setStep('redis-cache');
+  };
+
+  const handleRedisCache = (item: { value: boolean }) => {
+    const updatedConfig = { ...config, enableRedisCache: item.value };
+    setConfig(updatedConfig);
+    if (item.value) {
+      setStep('redis-url');
+    } else {
+      setStep('l2-cache');
+    }
+  };
+
+  const handleRedisUrl = () => {
+    setConfig({ ...config, redisUrl: input || 'redis://localhost:6379' });
+    setInput('');
     setStep('l2-cache');
   };
 
   const handleL2Cache = (item: { value: boolean }) => {
-    setConfig({ ...config, enableL2Cache: item.value });
+    const updatedConfig = {
+      ...config,
+      enableL2Cache: item.value,
+      embeddingProvider: item.value ? ('openai' as const) : undefined
+    };
+    setConfig(updatedConfig);
     if (item.value) {
-      setStep('embedding-provider');
+      setStep('embedding-api-key');
     } else {
       setStep('installing');
-      installDependencies();
+      finishSetup(updatedConfig);
     }
   };
 
-  const handleEmbeddingProvider = (item: { value: string }) => {
-    setConfig({ ...config, embeddingProvider: item.value as any });
-    setStep('embedding-api-key');
-  };
-
   const handleEmbeddingApiKey = () => {
-    setConfig({ ...config, embeddingApiKey: input });
+    const updatedConfig = { ...config, embeddingApiKey: input };
+    setConfig(updatedConfig);
     setInput('');
     setStep('installing');
-    installDependencies();
+    finishSetup(updatedConfig);
   };
 
-  const installDependencies = () => {
+  const finishSetup = (finalConfig: SetupConfig = config) => {
     setTimeout(() => {
       try {
-        const dependencies = [
-          'dotenv',
-          config.databaseType === 'pg'
-            ? 'pg'
-            : config.databaseType === 'mysql2'
-            ? 'mysql2'
-            : config.databaseType === 'better-sqlite3'
-            ? 'better-sqlite3'
-            : 'mssql',
-          '@ai-sdk/anthropic',
-          '@ai-sdk/openai',
-        ];
-
-        if (config.llmProvider === 'cohere') dependencies.push('@ai-sdk/cohere');
-        if (config.llmProvider === 'mistral') dependencies.push('@ai-sdk/mistral');
-        if (config.llmProvider === 'google') dependencies.push('@ai-sdk/google-vertex');
-
-        execSync(`npm install ${dependencies.join(' ')}`, {
-          stdio: 'inherit',
-        });
-
-        // Generate .env
-        generateEnvFile(config);
+        // Generate .env and example code
+        generateEnvFile(finalConfig);
         generateExampleCode();
+
+        // Create package.json if it doesn't exist
+        if (!existsSync('package.json')) {
+          const packageJson = {
+            name: 'nttp-project',
+            version: '1.0.0',
+            type: 'module',
+            scripts: {
+              start: 'node nttp-example.js'
+            }
+          };
+          writeFileSync('package.json', JSON.stringify(packageJson, null, 2));
+        }
+
+        // Install dependencies
+        try {
+          execSync('npm install nttp dotenv', { stdio: 'inherit' });
+        } catch (error) {
+          console.error('Failed to install dependencies. Please run: npm install nttp dotenv');
+        }
 
         setStep('complete');
       } catch (error) {
-        console.error('Installation failed:', error);
+        console.error('Setup failed:', error);
         process.exit(1);
       }
     }, 100);
@@ -285,6 +304,39 @@ export default function SetupWizard() {
         </Box>
       )}
 
+      {/* Redis Cache */}
+      {step === 'redis-cache' && (
+        <Box flexDirection="column">
+          <Text bold>⚡ Cache Configuration</Text>
+          <Newline />
+          <Text>Enable Redis cache?</Text>
+          <Text color="gray">(Persist cache across CLI calls)</Text>
+          <SelectInput
+            items={[
+              { label: 'No', value: false },
+              { label: 'Yes', value: true },
+            ]}
+            onSelect={handleRedisCache}
+          />
+        </Box>
+      )}
+
+      {/* Redis URL */}
+      {step === 'redis-url' && (
+        <Box flexDirection="column">
+          <Text>Redis connection URL:</Text>
+          <Box>
+            <Text color="cyan">&gt; </Text>
+            <TextInput
+              value={input}
+              onChange={setInput}
+              onSubmit={handleRedisUrl}
+              placeholder="redis://localhost:6379"
+            />
+          </Box>
+        </Box>
+      )}
+
       {/* L2 Cache */}
       {step === 'l2-cache' && (
         <Box flexDirection="column">
@@ -302,26 +354,10 @@ export default function SetupWizard() {
         </Box>
       )}
 
-      {/* Embedding Provider */}
-      {step === 'embedding-provider' && (
-        <Box flexDirection="column">
-          <Text>Embedding provider:</Text>
-          <SelectInput
-            items={[
-              { label: 'OpenAI', value: 'openai' },
-              { label: 'Cohere', value: 'cohere' },
-            ]}
-            onSelect={handleEmbeddingProvider}
-          />
-        </Box>
-      )}
-
       {/* Embedding API Key */}
       {step === 'embedding-api-key' && (
         <Box flexDirection="column">
-          <Text>
-            {config.embeddingProvider?.toUpperCase()}_API_KEY:
-          </Text>
+          <Text>OPENAI_API_KEY (for embeddings):</Text>
           <Box>
             <Text color="cyan">&gt; </Text>
             <TextInput
@@ -334,17 +370,16 @@ export default function SetupWizard() {
         </Box>
       )}
 
-      {/* Installing */}
+      {/* Generating configuration */}
       {step === 'installing' && (
         <Box flexDirection="column">
-          <Text bold>📦 Installing dependencies...</Text>
-          <Newline />
-          <Text color="gray">  • dotenv</Text>
-          <Text color="gray">  • {config.databaseType} (database driver)</Text>
-          <Text color="gray">  • @ai-sdk/anthropic & @ai-sdk/openai</Text>
+          <Text bold>⚙️  Setting up your project...</Text>
           <Newline />
           <Text>
-            <Spinner type="dots" /> Running npm install...
+            <Spinner type="dots" /> Creating configuration files...
+          </Text>
+          <Text>
+            <Spinner type="dots" /> Installing dependencies (nttp, dotenv)...
           </Text>
         </Box>
       )}
@@ -361,14 +396,16 @@ export default function SetupWizard() {
             ✓ Setup complete!
           </Text>
           <Newline />
-          <Text bold>Installed:</Text>
-          <Text color="gray">  • {config.databaseType} database driver</Text>
-          <Text color="gray">  • @ai-sdk/anthropic & @ai-sdk/openai</Text>
+          <Text bold>Created:</Text>
+          <Text color="gray">  • .env (your configuration)</Text>
+          <Text color="gray">  • nttp-example.js (example code)</Text>
+          <Text color="gray">  • package.json (if not exists)</Text>
+          <Text color="gray">  • node_modules/ (installed nttp, dotenv)</Text>
           <Newline />
           <Text bold>Next steps:</Text>
-          <Text color="cyan">  1. Review your .env file</Text>
-          <Text color="cyan">  2. Run: node nttp-example.js</Text>
-          <Text color="cyan">  3. Or try: npx nttp query "show me 5 records"</Text>
+          <Text color="cyan">  1. Try CLI: npx nttp query "show me 5 records"</Text>
+          <Text color="cyan">  2. Or run code: node nttp-example.js</Text>
+          <Text color="cyan">  3. Or use in your code: npm start</Text>
           <Newline />
           <Text color="gray">
             Switch providers anytime by changing LLM_PROVIDER in .env
@@ -409,20 +446,29 @@ function generateEnvFile(config: SetupConfig): void {
 
   lines.push(`${envKeys[config.llmProvider!]}=${config.llmApiKey}`);
 
-  if (config.enableL2Cache && config.embeddingProvider) {
+  if (config.enableRedisCache) {
+    lines.push('');
+    lines.push('# Redis Cache');
+    lines.push(`REDIS_URL=${config.redisUrl}`);
+  }
+
+  if (config.enableL2Cache) {
     lines.push('');
     lines.push('# Semantic Cache');
-    lines.push(`EMBEDDING_PROVIDER=${config.embeddingProvider}`);
-    lines.push(
-      `${config.embeddingProvider.toUpperCase()}_API_KEY=${config.embeddingApiKey}`
-    );
+    lines.push('EMBEDDING_PROVIDER=openai');
+    lines.push(`OPENAI_API_KEY=${config.embeddingApiKey}`);
   }
 
   writeFileSync('.env', lines.join('\n') + '\n');
 }
 
 function generateExampleCode(): void {
-  const code = `import 'dotenv/config';
+  const code = `/**
+ * NTTP Example - Ready to run!
+ * Run: node nttp-example.js or npm start
+ */
+
+import 'dotenv/config';
 import { NTTP } from 'nttp';
 
 async function main() {

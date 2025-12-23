@@ -10,7 +10,8 @@
 - 🔄 **Multi-Database Support** - Works with SQLite, PostgreSQL, MySQL, and SQL Server
 - ⚡ **Fast Performance** - <50ms response time for cached queries
 - 🛡️ **Safe by Default** - Read-only query validation prevents destructive operations
-- 📊 **Intelligent Caching** - Automatic schema inference and caching reduces LLM calls
+- 📊 **Intelligent Caching** - 3-layer cache (exact, semantic, LLM) with optional Redis persistence
+- 💾 **Redis Support** - Persistent L1 cache across server restarts and multi-instance deployments
 - 🔧 **Easy Setup** - Interactive CLI wizard for configuration
 
 ## Documentation
@@ -61,9 +62,11 @@ curl -X POST http://localhost:8000/query \
 
 ## Performance
 
-- **Cache Hit**: <50ms response time
+- **L1 Cache Hit (In-Memory)**: <1ms response time
+- **L1 Cache Hit (Redis)**: ~5ms response time
+- **L2 Cache Hit (Semantic)**: ~80ms response time
 - **Cache Miss**: ~2-3s (includes LLM API calls)
-- **Throughput**: >10,000 requests/second
+- **Throughput**: >10,000 requests/second (cached)
 
 ## Tech Stack
 
@@ -71,6 +74,8 @@ curl -X POST http://localhost:8000/query \
 - **Web Framework**: Fastify
 - **Database**: Knex.js (universal SQL query builder)
 - **AI/LLM**: Anthropic Claude Sonnet 4.5
+- **Cache**: Redis (optional) for L1 persistence
+- **Embeddings**: OpenAI for semantic L2 cache
 - **Validation**: Zod schemas
 - **CLI**: prompts, ora, chalk, boxen
 
