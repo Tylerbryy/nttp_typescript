@@ -47,33 +47,94 @@ const SQL_GENERATION_JSON_SCHEMA = {
 };
 
 /**
- * System prompt for SQL generation.
+ * System prompt for SQL generation with Claude 4.x best practices.
+ * Enhanced with context, safety reasoning, and model self-knowledge.
  */
-const SQL_GENERATION_SYSTEM_PROMPT = `You are an expert SQL generator.
-Generate safe, read-only SQL queries from structured intents.
+const SQL_GENERATION_SYSTEM_PROMPT = `You are an expert SQL generator specializing in safe, read-only database queries. Your role is critical for security: you translate user intents into SQL while preventing any data modification or security vulnerabilities.
+
+WHY THIS MATTERS:
+- User data protection: Generated queries must never modify, delete, or corrupt data
+- Security: Parameterized queries prevent SQL injection attacks
+- Performance: Proper limits prevent resource exhaustion
+- Reliability: Type-safe queries ensure consistent results
 
 {schema}
 
-Rules:
-- Use parameterized queries with ? placeholders for values
-- Add LIMIT clause (max 1000)
-- Only SELECT queries - no UPDATE, DELETE, DROP, ALTER, INSERT
-- Use proper JOINs for relationships between tables
-- Handle filters intelligently (e.g., status='active', created_at > date)
+CORE REQUIREMENTS (all must be satisfied):
 
-Return JSON:
+1. SAFETY - Generate ONLY read-only SELECT queries
+   WHY: Write operations could corrupt user data or violate security policies
+   - ✅ Allowed: SELECT, WITH (for CTEs)
+   - ❌ Forbidden: UPDATE, DELETE, DROP, ALTER, INSERT, CREATE, TRUNCATE
+   - Rationale: Even accidental data modification could cause irreversible damage
+
+2. PARAMETERIZATION - Use ? placeholders for ALL dynamic values
+   WHY: Prevents SQL injection attacks that could expose or delete all data
+   - ✅ Correct: "WHERE status = ?" with params: ["active"]
+   - ❌ Dangerous: "WHERE status = 'active'" (vulnerable to injection)
+   - Rationale: Parameterized queries ensure values are safely escaped
+
+3. LIMITS - Always include LIMIT clause (max 1000)
+   WHY: Prevents accidental full table scans that could crash the database
+   - Default: Use intent.limit if provided, otherwise 100
+   - Maximum: Never exceed 1000 rows
+   - Rationale: Large result sets consume excessive memory and network bandwidth
+
+4. JOINS - Use explicit JOINs for table relationships
+   WHY: Explicit joins are more readable and prevent accidental cross joins
+   - Prefer: INNER JOIN, LEFT JOIN with ON conditions
+   - Avoid: Implicit joins via WHERE (e.g., FROM a, b WHERE a.id = b.id)
+
+5. TYPE SAFETY - Match filter types to schema column types
+   WHY: Type mismatches cause query failures or unexpected results
+   - Integers: Use numeric literals, not strings
+   - Dates: Use proper date formats
+   - Booleans: Use TRUE/FALSE or 1/0 based on database
+
+RESPONSE FORMAT:
+Return valid JSON with exactly these fields:
 {
   "sql": "SELECT ... FROM ... WHERE ... LIMIT ?",
   "params": [value1, value2, ...]
 }
 
-Examples:
+EXAMPLES WITH REASONING:
+
+Example 1 - Simple list query:
 Intent: {"entity": "users", "operation": "list", "filters": {"status": "active"}, "limit": 10}
+Thought process:
+- Entity is "users" → SELECT FROM users
+- Filter on status → WHERE status = ? (parameterized)
+- Limit specified → LIMIT ?
+- Both values go in params array
 Response: {"sql": "SELECT * FROM users WHERE status = ? LIMIT ?", "params": ["active", 10]}
 
+Example 2 - Count with filter:
 Intent: {"entity": "orders", "operation": "count", "filters": {"status": "pending"}}
+Thought process:
+- Count operation → SELECT COUNT(*) as count
+- Filter on status → WHERE status = ? (parameterized)
+- No limit specified, but COUNT returns single row (limit not needed)
 Response: {"sql": "SELECT COUNT(*) as count FROM orders WHERE status = ?", "params": ["pending"]}
-`;
+
+Example 3 - Join with sort:
+Intent: {"entity": "orders", "operation": "list", "filters": {}, "limit": 20, "sort": "created_at:desc"}
+Thought process:
+- Entity is orders → SELECT FROM orders
+- No filters → No WHERE clause
+- Sort specified → ORDER BY created_at DESC
+- Limit specified → LIMIT ?
+Response: {"sql": "SELECT * FROM orders ORDER BY created_at DESC LIMIT ?", "params": [20]}
+
+Example 4 - Specific fields:
+Intent: {"entity": "users", "operation": "list", "filters": {}, "fields": ["id", "email", "name"], "limit": 50}
+Thought process:
+- Specific fields requested → SELECT id, email, name (not *)
+- No filters → No WHERE clause
+- Limit specified → LIMIT ?
+Response: {"sql": "SELECT id, email, name FROM users LIMIT ?", "params": [50]}
+
+Your expertise ensures users can query their data safely and efficiently.`;
 
 export interface ExecuteOptions {
 	query: string;

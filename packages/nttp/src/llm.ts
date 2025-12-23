@@ -1,6 +1,31 @@
 /**
  * LLM integration layer using AI SDK for provider-agnostic support.
  * Implements structured outputs for guaranteed schema compliance.
+ *
+ * MODEL SELECTION GUIDE (based on Claude 4.x capabilities):
+ *
+ * Anthropic Claude:
+ *   - claude-sonnet-4-5: Best for SQL generation - excellent instruction following,
+ *     strong reasoning, reliable structured outputs. Recommended default.
+ *   - claude-opus-4-5: Most capable but slower - use for complex multi-table queries
+ *   - claude-haiku-4: Fastest but less capable - use for simple lookups
+ *
+ * OpenAI:
+ *   - gpt-4o: Fast and reliable for structured outputs
+ *   - gpt-4-turbo: Good balance of speed and quality
+ *   - gpt-3.5-turbo: Fastest but may struggle with complex schemas
+ *
+ * Cohere:
+ *   - command-r-plus: Strong for enterprise use cases
+ *   - command-r: Good balance of cost and performance
+ *
+ * Mistral:
+ *   - mistral-large-latest: Competitive with GPT-4
+ *   - mistral-medium: Good for simple queries
+ *
+ * Google Gemini:
+ *   - gemini-pro: Solid general-purpose model
+ *   - gemini-ultra: Most capable for complex reasoning
  */
 
 import { generateText } from 'ai';

@@ -1,310 +1,152 @@
 # NTTP - Natural Text Transfer Protocol
 
-Query databases with natural language using an LLM.
+> Query databases with natural language using an LLM
 
-## Installation
+```bash
+npx nttp setup
+npx nttp query "show me 5 users"
+```
+
+## Quick Start
+
+### 1. Install
 
 ```bash
 npm install nttp
 ```
 
-## Quick Start with CLI (Recommended)
+### 2. Setup
 
-### For Humans: Interactive Setup
-
-The easiest way to get started is with our **interactive setup wizard** (powered by [Ink](https://github.com/vadimdemedes/ink) for a beautiful CLI experience):
+**Interactive (recommended):**
 
 ```bash
 npx nttp setup
 ```
 
-This will:
-- ✅ Guide you through database configuration
-- ✅ Help you choose an LLM provider
-- ✅ Automatically install required dependencies
-- ✅ Create your `.env` file
-- ✅ Generate example code
-
-### For LLM Agents: Non-Interactive Setup
-
-Perfect for automation, CI/CD, or LLM agents:
+**Non-interactive (for agents/CI):**
 
 ```bash
 npx nttp setup --non-interactive \
   --database-type=pg \
   --database-url=postgresql://user:pass@localhost:5432/db \
   --llm-provider=anthropic \
-  --llm-api-key=sk-ant-... \
-  --redis-url=redis://localhost:6379 \
-  --enable-l2-cache \
-  --embedding-api-key=sk-...
-```
-
-**Minimal example (SQLite + Claude):**
-```bash
-npx nttp setup --non-interactive \
-  --database-type=better-sqlite3 \
-  --database-path=./data.db \
-  --llm-provider=anthropic \
   --llm-api-key=sk-ant-...
 ```
 
-**All available flags:**
-- `--database-type` - Required: `pg`, `mysql2`, `better-sqlite3`, `mssql`
-- `--database-url` - Required (except for SQLite): Connection URL
-- `--database-path` - Required for SQLite: Path to .db file
-- `--llm-provider` - Required: `anthropic`, `openai`, `cohere`, `mistral`, `google`
-- `--llm-model` - Optional: Model name (auto-selected if omitted)
-- `--llm-api-key` - Required: API key for LLM provider
-- `--redis-url` - Optional: Redis URL for L1 cache persistence
-- `--enable-l2-cache` - Optional: Enable semantic caching
-- `--embedding-api-key` - Required if L2 enabled: OpenAI API key
+### 3. Query
 
-### Query Your Database
+**CLI:**
 
 ```bash
-npx nttp query "show me 5 users"
+npx nttp query "show active users"
+npx nttp query "count pending orders"
+npx nttp query "top 10 products by price"
 ```
 
-### Get Documentation (Great for LLM Agents)
-
-```bash
-# Show all documentation
-npx nttp docs
-
-# Search documentation
-npx nttp docs redis
-npx nttp docs "cache configuration"
-npx nttp docs setup
-npx nttp docs --query "semantic cache"
-```
-
-Returns relevant sections instantly - perfect for agents to quickly find information!
-
-Or use in your code:
+**Code:**
 
 ```typescript
 import { NTTP } from 'nttp';
 
-// Load configuration from .env automatically
 const nttp = await NTTP.fromEnv();
-const result = await nttp.query("show me users");
+const result = await nttp.query("show active users");
+console.log(result.data);
 await nttp.close();
 ```
 
-## Manual Setup (Advanced)
+---
 
-```typescript
-import { NTTP } from 'nttp';
+## How It Works
 
-const nttp = new NTTP({
-  database: {
-    client: 'pg',
-    connection: process.env.DATABASE_URL
-  },
-  llm: {
-    provider: 'anthropic',
-    model: 'claude-sonnet-4-5-20250929',
-    apiKey: process.env.ANTHROPIC_API_KEY
-  }
-});
+3-layer caching system optimizes cost and performance:
 
-// Initialize (connects to database, builds schema cache)
-await nttp.init();
-
-// Query naturally!
-const users = await nttp.query("get all active users");
-console.log(users.data); // Array of users
-
-// Close when done
-await nttp.close();
+```
+L1: EXACT       Hash match         $0        <1ms (in-memory) or ~5ms (Redis)
+L2: SEMANTIC    Embedding match    $0.0001   80ms
+L3: LLM         Claude/GPT         $0.01     2-3s
 ```
 
-## API Reference
+Most queries hit L1 or L2. Only novel queries reach the LLM.
 
-### `new NTTP(config)`
+---
 
-Create a new NTTP instance.
+## Features
 
-**Config:**
-```typescript
-{
-  database: {
-    client: 'pg' | 'mysql2' | 'better-sqlite3' | 'mssql',
-    connection: string | object  // Knex connection config
-  },
-  llm: {
-    provider: 'anthropic' | 'openai' | 'cohere' | 'mistral' | 'google',
-    model: string,  // e.g., 'claude-sonnet-4-5-20250929', 'gpt-4o'
-    apiKey: string,
-    maxTokens?: number  // Default: 2048
-  },
-  cache?: {
-    l1?: {
-      enabled?: boolean,  // Default: true
-      maxSize?: number    // Default: 1000
-    },
-    l2?: {
-      enabled?: boolean,  // Default: false
-      provider?: 'openai',
-      model?: string,     // e.g., 'text-embedding-3-small'
-      apiKey?: string,
-      maxSize?: number,   // Default: 500
-      similarityThreshold?: number  // Default: 0.85
-    },
-    redis?: {
-      url: string  // Redis connection URL for L1 cache persistence
-    }
-  },
-  limits?: {
-    maxQueryLength?: number,  // Default: 500
-    defaultLimit?: number,  // Default: 100
-    maxLimit?: number  // Default: 1000
-  }
-}
-```
+- **Natural Language Queries** - "show active users" → `SELECT * FROM users WHERE status = 'active'`
+- **3-Layer Caching** - Exact, semantic, and LLM-generated query caching
+- **Multi-LLM Support** - Claude, GPT-4, Cohere, Mistral, Gemini
+- **Multi-Database** - PostgreSQL, MySQL, SQLite, SQL Server
+- **Redis Persistence** - Optional cache persistence across restarts
+- **Type-Safe** - Full TypeScript support
+- **CLI + SDK** - Use from command line or code
 
-### `nttp.init()`
+---
 
-Initialize NTTP. Must be called before querying.
+## Documentation
 
-```typescript
-await nttp.init();
-```
+- **Quick Reference:** `npx nttp docs [topic]`
+- **Full Guides:** [/docs](/docs)
 
-### `nttp.query(query, options?)`
+### Guides
 
-Execute a natural language query.
+- [API Reference](docs/api.md) - Complete API documentation
+- [Caching System](docs/caching.md) - 3-layer cache deep dive
+- [Configuration](docs/configuration.md) - All config options
+- [LLM Models](docs/models.md) - Model selection guide
+- [Examples](docs/examples.md) - Usage examples
+- [Production](docs/production.md) - Deployment best practices
+- [Troubleshooting](docs/troubleshooting.md) - Common issues
 
-```typescript
-const result = await nttp.query("show pending orders over $500");
-
-// Result structure:
-{
-  query: string,           // Original query
-  data: any[],            // Query results
-  schemaId: string,       // Cache key
-  cacheHit: boolean,      // Was cached?
-  executionTimeMs: number, // Execution time
-  intent: {...},          // Parsed intent
-  sql?: string,           // Generated SQL (debug)
-  params?: any[]          // SQL parameters (debug)
-}
-```
-
-**Options:**
-```typescript
-{
-  useCache?: boolean,       // Use cache (default: true)
-  forceNewSchema?: boolean  // Force new schema (default: false)
-}
-```
-
-### `nttp.explain(query)`
-
-Explain what SQL would be generated without executing.
-
-```typescript
-const explanation = await nttp.explain("top 10 customers by revenue");
-
-// Returns:
-{
-  query: string,
-  intent: {...},
-  sql: string,
-  params: any[],
-  schemaId: string,
-  cachedSchema: SchemaDefinition | null
-}
-```
-
-### Schema Management
-
-```typescript
-// List all cached schemas
-const schemas = await nttp.listSchemas();
-
-// Get specific schema
-const schema = await nttp.getSchema(schemaId);
-
-// Delete schema
-await nttp.deleteSchema(schemaId);
-
-// Pin schema (prevent eviction)
-await nttp.pinSchema(schemaId);
-
-// Unpin schema
-await nttp.unpinSchema(schemaId);
-
-// Get cache statistics
-const stats = await nttp.getCacheStats();
-```
-
-### Database Inspection
-
-```typescript
-// Get all tables
-const tables = await nttp.getTables();
-
-// Get table schema
-const schema = await nttp.getTableSchema('users');
-
-// Get schema description (for LLM)
-const description = nttp.getSchemaDescription();
-```
+---
 
 ## Example Queries
 
 ```typescript
-// Simple queries
-await nttp.query("get all users");
-await nttp.query("show products");
-await nttp.query("list orders");
+// Simple
+await nttp.query("show users");
+await nttp.query("list products");
 
-// Filtered queries
-await nttp.query("active users only");
-await nttp.query("products in Electronics category");
-await nttp.query("pending orders");
-
-// With limits
-await nttp.query("top 10 products by price");
-await nttp.query("show me 5 recent orders");
+// Filtered
+await nttp.query("active users from California");
+await nttp.query("products under $50");
 
 // Aggregations
-await nttp.query("count all users");
+await nttp.query("count pending orders");
 await nttp.query("total revenue by category");
-await nttp.query("average order value");
 
-// Complex conditions
-await nttp.query("products with 4+ star rating under $100");
-await nttp.query("orders from California in the last 30 days");
+// Complex
+await nttp.query("top 10 products by revenue");
 await nttp.query("users who joined this year");
 ```
 
-## Database Support
+---
 
-NTTP works with any SQL database supported by Knex.js:
+## Configuration
 
-- **PostgreSQL** - Recommended for production
-- **MySQL** - Widely supported
-- **SQLite** - Perfect for development
-- **SQL Server** - Enterprise-ready
+### Environment Variables (`.env`)
 
-## Performance
+```bash
+# Database
+DATABASE_TYPE=pg
+DATABASE_URL=postgresql://user:pass@localhost:5432/mydb
 
-- **Cache Hit**: <50ms average
-- **Cache Miss**: ~2-3s (LLM call)
-- **Throughput**: >10,000 req/s (cached)
+# LLM
+LLM_PROVIDER=anthropic
+LLM_MODEL=claude-sonnet-4-5-20250929
+ANTHROPIC_API_KEY=sk-ant-...
 
-## Cache Persistence with Redis
+# Cache (optional but recommended)
+REDIS_URL=redis://localhost:6379
+OPENAI_API_KEY=sk-...  # For L2 semantic cache
+```
 
-By default, L1 cache uses in-memory storage that resets on each process restart. For production deployments or CLI usage, enable Redis to persist cache across invocations:
+### Programmatic
 
 ```typescript
 const nttp = new NTTP({
   database: {
     client: 'pg',
-    connection: process.env.DATABASE_URL
+    connection: 'postgresql://user:pass@localhost:5432/mydb'
   },
   llm: {
     provider: 'anthropic',
@@ -312,94 +154,101 @@ const nttp = new NTTP({
     apiKey: process.env.ANTHROPIC_API_KEY
   },
   cache: {
-    redis: {
-      url: 'redis://localhost:6379'
-    }
+    redis: { url: 'redis://localhost:6379' },
+    l2: { enabled: true, provider: 'openai', apiKey: process.env.OPENAI_API_KEY }
   }
 });
+
+await nttp.init();
 ```
 
-Or via environment variables with `NTTP.fromEnv()`:
+See [Configuration Guide](docs/configuration.md) for all options.
 
-```bash
-# .env file
-REDIS_URL=redis://localhost:6379
-```
+---
 
-**Benefits:**
-- ✅ Cache persists across CLI invocations
-- ✅ Shared cache in multi-instance deployments
-- ✅ Reduced cold-start latency
-- ✅ 24-hour TTL for cached entries
+## Performance
 
-**Performance with Redis:**
-- L1 cache hit: ~5ms (vs <1ms in-memory)
-- Still 400x faster than LLM call
-- Negligible latency increase for significant persistence benefits
+- **L1 Cache (Exact):** <1ms (in-memory) or ~5ms (Redis) - $0
+- **L2 Cache (Semantic):** ~75ms - ~$0.0001
+- **L3 (LLM):** 2-3s - ~$0.01
+- **Throughput:** >10,000 req/s (cached)
+
+**Cost Savings:** With caching, 90%+ cost reduction after warm-up.
+
+---
+
+## Supported Databases
+
+- **PostgreSQL** - Recommended for production
+- **MySQL** - Widely supported
+- **SQLite** - Perfect for development
+- **SQL Server** - Enterprise-ready
+
+---
+
+## Supported LLMs
+
+- **Anthropic Claude** (recommended) - Best SQL generation
+- **OpenAI GPT** - Fast and reliable
+- **Cohere** - Enterprise support
+- **Mistral** - Open-source preference
+- **Google Gemini** - Multimodal capabilities
+
+See [Model Selection Guide](docs/models.md) for detailed comparison.
+
+---
 
 ## CLI Commands
 
-### `npx nttp setup`
-
-Beautiful interactive setup wizard (powered by Ink) with Vercel-inspired DX:
-
-- Choose database type (PostgreSQL, MySQL, SQLite, SQL Server)
-- Configure connection details
-- Select LLM provider (Anthropic, OpenAI, Cohere, Mistral, Google)
-- Optional: Enable Redis cache (L1 persistence)
-- Optional: Enable semantic caching (L2 cache)
-- Automatically installs dependencies
-- Creates `.env` file
-- Generates example code
-
-For non-interactive setup (agents/automation), see the section above.
-
-### `npx nttp init`
-
-Alias for `npx nttp setup`. Quick project initialization.
-
-### `npx nttp query <text>`
-
-Execute a natural language query from the command line:
-
 ```bash
-npx nttp query "show me 5 products"
-npx nttp query "count active users"
-npx nttp query "top 10 customers by revenue" --format json
+# Setup wizard
+npx nttp setup
+
+# Query database
+npx nttp query "your question"
+npx nttp query "show users" --format json
+
+# Documentation
+npx nttp docs                    # Show all docs
+npx nttp docs redis              # Search for "redis"
+npx nttp docs "semantic cache"   # Multi-word search
 ```
 
-Options:
-- `--format <type>` - Output format: `table` (default) or `json`
+---
 
-### `npx nttp docs [query]`
+## API Overview
 
-Show documentation or search for specific topics (perfect for LLM agents):
+```typescript
+import { NTTP } from 'nttp';
 
-```bash
-# Show all documentation
-npx nttp docs
+// Initialize from environment variables
+const nttp = await NTTP.fromEnv();
 
-# Search for specific topics
-npx nttp docs redis              # Find Redis-related docs
-npx nttp docs cache              # Find cache documentation
-npx nttp docs setup              # Find setup instructions
-npx nttp docs "l2 semantic"      # Multi-word search
-npx nttp docs --query "api key"  # Alternative syntax
+// Execute query
+const result = await nttp.query("show active users");
+console.log(result.data);        // Query results
+console.log(result.cacheHit);    // true/false
+console.log(result.meta);        // Cache metadata
+
+// Explain query (without executing)
+const explanation = await nttp.explain("show users");
+console.log(explanation.sql);    // Generated SQL
+
+// Database inspection
+const tables = await nttp.getTables();
+const schema = await nttp.getTableSchema('users');
+
+// Cache management
+const stats = await nttp.getCacheStats();
+await nttp.pinSchema(schemaId);
+
+// Clean up
+await nttp.close();
 ```
 
-**Searchable Topics:**
-- `setup` - Setup command and configuration
-- `cache` - 3-layer cache system (L1, L2, L3)
-- `redis` - Redis persistence configuration
-- `query` - Query command and examples
-- `api` - Programmatic API usage
-- `databases` - Supported databases
-- `llm` - LLM providers and models
-- `performance` - Performance metrics and optimization
-- `troubleshooting` - Common issues and solutions
-- `examples` - Example natural language queries
+See [API Reference](docs/api.md) for complete documentation.
 
-**Agent-Friendly Output:** Returns only relevant sections with context, making it easy for LLM agents to quickly find information without parsing full documentation files.
+---
 
 ## Error Handling
 
@@ -407,17 +256,22 @@ npx nttp docs --query "api key"  # Alternative syntax
 import { IntentParseError, SQLGenerationError, SQLExecutionError } from 'nttp';
 
 try {
-  const result = await nttp.query("ambiguous query");
+  const result = await nttp.query("your query");
 } catch (error) {
   if (error instanceof IntentParseError) {
     console.error('Could not understand query');
+    console.log('Suggestions:', error.suggestions);
   } else if (error instanceof SQLGenerationError) {
     console.error('Could not generate SQL');
   } else if (error instanceof SQLExecutionError) {
-    console.error('SQL execution failed');
+    console.error('Query execution failed');
   }
 }
 ```
+
+All errors include helpful suggestions. See [Troubleshooting Guide](docs/troubleshooting.md).
+
+---
 
 ## TypeScript
 
@@ -432,6 +286,26 @@ import type {
   CacheStats
 } from 'nttp';
 ```
+
+---
+
+## Examples
+
+- [Basic Usage](docs/examples.md#basic-queries)
+- [Express Integration](docs/examples.md#using-with-express)
+- [Next.js Integration](docs/examples.md#using-with-nextjs)
+- [CLI Tools](docs/examples.md#cli-integration)
+
+---
+
+## Links
+
+- [GitHub](https://github.com/tylergibbs/nttp)
+- [npm](https://www.npmjs.com/package/nttp)
+- [Issues](https://github.com/tylergibbs/nttp/issues)
+- [Documentation](/docs)
+
+---
 
 ## License
 
