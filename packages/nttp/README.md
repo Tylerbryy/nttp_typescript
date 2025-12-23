@@ -85,17 +85,17 @@ Most queries hit L1 or L2. Only novel queries reach the LLM.
 ## Documentation
 
 - **Quick Reference:** `npx nttp docs [topic]`
-- **Full Guides:** [/docs](/docs)
+- **Full Guides:** [/docs](https://github.com/Tylerbryy/nttp_typescript/tree/main/packages/nttp/docs)
 
 ### Guides
 
-- [API Reference](docs/api.md) - Complete API documentation
-- [Caching System](docs/caching.md) - 3-layer cache deep dive
-- [Configuration](docs/configuration.md) - All config options
-- [LLM Models](docs/models.md) - Model selection guide
-- [Examples](docs/examples.md) - Usage examples
-- [Production](docs/production.md) - Deployment best practices
-- [Troubleshooting](docs/troubleshooting.md) - Common issues
+- [API Reference](https://github.com/Tylerbryy/nttp_typescript/blob/main/packages/nttp/docs/api.md) - Complete API documentation
+- [Caching System](https://github.com/Tylerbryy/nttp_typescript/blob/main/packages/nttp/docs/caching.md) - 3-layer cache deep dive
+- [Configuration](https://github.com/Tylerbryy/nttp_typescript/blob/main/packages/nttp/docs/configuration.md) - All config options
+- [LLM Models](https://github.com/Tylerbryy/nttp_typescript/blob/main/packages/nttp/docs/models.md) - Model selection guide
+- [Examples](https://github.com/Tylerbryy/nttp_typescript/blob/main/packages/nttp/docs/examples.md) - Usage examples
+- [Production](https://github.com/Tylerbryy/nttp_typescript/blob/main/packages/nttp/docs/production.md) - Deployment best practices
+- [Troubleshooting](https://github.com/Tylerbryy/nttp_typescript/blob/main/packages/nttp/docs/troubleshooting.md) - Common issues
 
 ---
 
@@ -162,7 +162,7 @@ const nttp = new NTTP({
 await nttp.init();
 ```
 
-See [Configuration Guide](docs/configuration.md) for all options.
+See [Configuration Guide](https://github.com/Tylerbryy/nttp_typescript/blob/main/packages/nttp/docs/configuration.md) for all options.
 
 ---
 
@@ -194,7 +194,7 @@ See [Configuration Guide](docs/configuration.md) for all options.
 - **Mistral** - Open-source preference
 - **Google Gemini** - Multimodal capabilities
 
-See [Model Selection Guide](docs/models.md) for detailed comparison.
+See [Model Selection Guide](https://github.com/Tylerbryy/nttp_typescript/blob/main/packages/nttp/docs/models.md) for detailed comparison.
 
 ---
 
@@ -246,7 +246,7 @@ await nttp.pinSchema(schemaId);
 await nttp.close();
 ```
 
-See [API Reference](docs/api.md) for complete documentation.
+See [API Reference](https://github.com/Tylerbryy/nttp_typescript/blob/main/packages/nttp/docs/api.md) for complete documentation.
 
 ---
 
@@ -269,7 +269,7 @@ try {
 }
 ```
 
-All errors include helpful suggestions. See [Troubleshooting Guide](docs/troubleshooting.md).
+All errors include helpful suggestions. See [Troubleshooting Guide](https://github.com/Tylerbryy/nttp_typescript/blob/main/packages/nttp/docs/troubleshooting.md).
 
 ---
 
@@ -291,19 +291,19 @@ import type {
 
 ## Examples
 
-- [Basic Usage](docs/examples.md#basic-queries)
-- [Express Integration](docs/examples.md#using-with-express)
-- [Next.js Integration](docs/examples.md#using-with-nextjs)
-- [CLI Tools](docs/examples.md#cli-integration)
+- [Basic Usage](https://github.com/Tylerbryy/nttp_typescript/blob/main/packages/nttp/docs/examples.md#basic-queries)
+- [Express Integration](https://github.com/Tylerbryy/nttp_typescript/blob/main/packages/nttp/docs/examples.md#using-with-express)
+- [Next.js Integration](https://github.com/Tylerbryy/nttp_typescript/blob/main/packages/nttp/docs/examples.md#using-with-nextjs)
+- [CLI Tools](https://github.com/Tylerbryy/nttp_typescript/blob/main/packages/nttp/docs/examples.md#cli-integration)
 
 ---
 
 ## Links
 
-- [GitHub](https://github.com/tylergibbs/nttp)
+- [GitHub](https://github.com/Tylerbryy/nttp_typescript)
 - [npm](https://www.npmjs.com/package/nttp)
-- [Issues](https://github.com/tylergibbs/nttp/issues)
-- [Documentation](/docs)
+- [Issues](https://github.com/Tylerbryy/nttp_typescript/issues)
+- [Documentation](https://github.com/Tylerbryy/nttp_typescript/tree/main/packages/nttp/docs)
 
 ---
 
