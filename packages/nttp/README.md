@@ -8,23 +8,39 @@ Query databases with natural language using an LLM.
 npm install nttp
 ```
 
-You'll also need a database driver:
+## Quick Start with CLI (Recommended)
+
+The easiest way to get started is with our interactive setup wizard:
 
 ```bash
-# SQLite
-npm install better-sqlite3
-
-# PostgreSQL
-npm install pg
-
-# MySQL
-npm install mysql2
-
-# SQL Server
-npm install mssql
+npx nttp setup
 ```
 
-## Quick Start
+This will:
+- ✅ Guide you through database configuration
+- ✅ Help you choose an LLM provider
+- ✅ Automatically install required dependencies
+- ✅ Create your `.env` file
+- ✅ Generate example code
+
+Then query your database:
+
+```bash
+npx nttp query "show me 5 users"
+```
+
+Or use in your code:
+
+```typescript
+import { NTTP } from 'nttp';
+
+// Load configuration from .env automatically
+const nttp = await NTTP.fromEnv();
+const result = await nttp.query("show me users");
+await nttp.close();
+```
+
+## Manual Setup (Advanced)
 
 ```typescript
 import { NTTP } from 'nttp';
@@ -224,6 +240,37 @@ NTTP works with any SQL database supported by Knex.js:
 - **Cache Hit**: <50ms average
 - **Cache Miss**: ~2-3s (LLM call)
 - **Throughput**: >10,000 req/s (cached)
+
+## CLI Commands
+
+### `npx nttp setup`
+
+Interactive setup wizard with Vercel-inspired DX:
+
+- Choose database type (PostgreSQL, MySQL, SQLite, SQL Server)
+- Configure connection details
+- Select LLM provider (Anthropic, OpenAI, Cohere, Mistral, Google)
+- Optional: Enable semantic caching (L2 cache)
+- Automatically installs dependencies
+- Creates `.env` file
+- Generates example code
+
+### `npx nttp init`
+
+Alias for `npx nttp setup`. Quick project initialization.
+
+### `npx nttp query <text>`
+
+Execute a natural language query from the command line:
+
+```bash
+npx nttp query "show me 5 products"
+npx nttp query "count active users"
+npx nttp query "top 10 customers by revenue" --format json
+```
+
+Options:
+- `--format <type>` - Output format: `table` (default) or `json`
 
 ## Error Handling
 

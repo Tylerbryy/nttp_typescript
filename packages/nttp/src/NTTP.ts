@@ -18,6 +18,11 @@ import { LLMService } from './llm.js';
 import { IntentParser } from './intent.js';
 import { QueryExecutor } from './executor.js';
 import { ExactCache, SemanticCache } from './cache/index.js';
+import {
+  validateDatabaseClient,
+  validateConnection,
+  validateLLMConfig,
+} from './validation.js';
 
 /**
  * nttp - natural text to query
@@ -60,8 +65,25 @@ export class NTTP {
   private l2Cache?: SemanticCache;
 
   constructor(private config: NTTPConfig) {
+    // Validate configuration
+    const validatedClient = validateDatabaseClient(config.database.client as string);
+    validateConnection(
+      validatedClient,
+      (config.database as any).connection || (config.database as any).filename
+    );
+    validateLLMConfig(config.llm);
+
+    // Normalize client name
+    const normalizedConfig = {
+      ...config,
+      database: {
+        ...config.database,
+        client: validatedClient,
+      },
+    };
+
     // Initialize Knex
-    this.db = knex(config.database);
+    this.db = knex(normalizedConfig.database);
 
     // Initialize schema inspector
     this.inspector = SchemaInspector(this.db);
@@ -87,6 +109,87 @@ export class NTTP {
       this.l1Cache,
       this.l2Cache
     );
+  }
+
+  /**
+   * Create NTTP instance from environment variables.
+   * Reads configuration from .env file.
+   *
+   * @example
+   * ```typescript
+   * // Requires .env with DATABASE_URL, LLM_PROVIDER, etc.
+   * const nttp = await NTTP.fromEnv();
+   * const result = await nttp.query("show me users");
+   * ```
+   */
+  static async fromEnv(): Promise<NTTP> {
+    const databaseType = process.env.DATABASE_TYPE || 'pg';
+    const databaseUrl = process.env.DATABASE_URL;
+    const databasePath = process.env.DATABASE_PATH;
+
+    if (!databaseUrl && !databasePath) {
+      throw new Error('DATABASE_URL or DATABASE_PATH environment variable is required');
+    }
+
+    const llmProvider = (process.env.LLM_PROVIDER || 'anthropic') as NTTPConfig['llm']['provider'];
+    const llmModel = process.env.LLM_MODEL || 'claude-sonnet-4-5-20250929';
+
+    // Get API key based on provider
+    const llmApiKeyMap = {
+      anthropic: process.env.ANTHROPIC_API_KEY,
+      openai: process.env.OPENAI_API_KEY,
+      cohere: process.env.COHERE_API_KEY,
+      mistral: process.env.MISTRAL_API_KEY,
+      google: process.env.GOOGLE_API_KEY,
+    };
+
+    const llmApiKey = llmApiKeyMap[llmProvider];
+    if (!llmApiKey) {
+      throw new Error(`${llmProvider.toUpperCase()}_API_KEY environment variable is required`);
+    }
+
+    const config: NTTPConfig = {
+      database: databasePath
+        ? {
+            client: 'better-sqlite3',
+            connection: { filename: databasePath },
+          }
+        : {
+            client: databaseType as any,
+            connection: databaseUrl,
+          },
+      llm: {
+        provider: llmProvider,
+        model: llmModel,
+        apiKey: llmApiKey,
+      },
+    };
+
+    // Optional: L2 cache configuration
+    const embeddingProvider = process.env.EMBEDDING_PROVIDER;
+    if (embeddingProvider === 'openai' || embeddingProvider === 'cohere') {
+      const embeddingApiKey =
+        embeddingProvider === 'openai'
+          ? process.env.OPENAI_API_KEY
+          : process.env.COHERE_API_KEY;
+
+      if (embeddingApiKey) {
+        config.cache = {
+          l2: {
+            provider: embeddingProvider,
+            model:
+              embeddingProvider === 'openai'
+                ? 'text-embedding-3-small'
+                : 'embed-english-v3.0',
+            apiKey: embeddingApiKey,
+          },
+        };
+      }
+    }
+
+    const nttp = new NTTP(config);
+    await nttp.init();
+    return nttp;
   }
 
   /**
