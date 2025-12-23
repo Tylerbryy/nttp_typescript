@@ -4,7 +4,7 @@
  */
 
 import { Command } from 'commander';
-import { runSetup } from './cli/setup.js';
+import { runSetup } from './cli/setup-ink.js';
 import { runQuery } from './cli/query.js';
 import { runInit } from './cli/init.js';
 
@@ -13,7 +13,7 @@ const program = new Command();
 program
   .name('nttp')
   .description('Query databases with natural language')
-  .version('1.1.1');
+  .version('1.2.0');
 
 program
   .command('setup')

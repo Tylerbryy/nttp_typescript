@@ -10,7 +10,7 @@ npm install nttp
 
 ## Quick Start with CLI (Recommended)
 
-The easiest way to get started is with our interactive setup wizard:
+The easiest way to get started is with our **interactive setup wizard** (powered by [Ink](https://github.com/vadimdemedes/ink) for a beautiful CLI experience):
 
 ```bash
 npx nttp setup
@@ -245,7 +245,7 @@ NTTP works with any SQL database supported by Knex.js:
 
 ### `npx nttp setup`
 
-Interactive setup wizard with Vercel-inspired DX:
+Beautiful interactive setup wizard (powered by Ink) with Vercel-inspired DX:
 
 - Choose database type (PostgreSQL, MySQL, SQLite, SQL Server)
 - Configure connection details

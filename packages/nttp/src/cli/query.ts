@@ -2,6 +2,7 @@
  * Execute queries from CLI
  */
 
+import 'dotenv/config';
 import chalk from 'chalk';
 import ora from 'ora';
 import { NTTP } from '../NTTP.js';

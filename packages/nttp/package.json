@@ -1,6 +1,6 @@
 {
   "name": "nttp",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "natural text to query - Query databases with natural language",
   "type": "module",
   "main": "./dist/index.js",
@@ -49,10 +49,16 @@
     "boxen": "^8.0.1",
     "chalk": "^5.6.2",
     "commander": "^14.0.2",
+    "dotenv": "^17.2.3",
+    "ink": "^6.6.0",
+    "ink-select-input": "^6.2.0",
+    "ink-spinner": "^5.0.0",
+    "ink-text-input": "^6.0.0",
     "knex": "^3.1.0",
     "knex-schema-inspector": "^3.1.0",
     "ora": "^9.0.0",
     "prompts": "^2.4.2",
+    "react": "^19.2.3",
     "zod": "^3.23.8",
     "zod-to-json-schema": "^3.23.0"
   },
@@ -95,6 +101,7 @@
   "devDependencies": {
     "@types/node": "^20.12.7",
     "@types/prompts": "^2.4.9",
+    "@types/react": "^19.2.7",
     "typescript": "^5.4.5"
   },
   "engines": {

@@ -250,23 +250,35 @@ export async function runSetup(): Promise<void> {
     config.embeddingApiKey = embeddingApiKey;
   }
 
-  // Install dependencies
+  // Install dependencies (nttp is already installed since user ran npx nttp setup)
   console.log(chalk.bold('\n📦 Installing dependencies...\n'));
 
   const dependencies = [
-    'nttp',
     'dotenv',
     DATABASE_DRIVERS[databaseType as keyof typeof DATABASE_DRIVERS].name,
-    providerInfo.name,
+    '@ai-sdk/anthropic',
+    '@ai-sdk/openai',
   ];
 
-  if (config.enableL2Cache && config.embeddingProvider === 'openai') {
-    if (!dependencies.includes('@ai-sdk/openai')) {
-      dependencies.push('@ai-sdk/openai');
-    }
+  // Add other AI SDKs if selected
+  if (llmProvider === 'cohere') {
+    dependencies.push('@ai-sdk/cohere');
+  } else if (llmProvider === 'mistral') {
+    dependencies.push('@ai-sdk/mistral');
+  } else if (llmProvider === 'google') {
+    dependencies.push('@ai-sdk/google-vertex');
   }
 
-  const spinner = ora('Installing packages...').start();
+  console.log(chalk.gray('Installing:'));
+  console.log(chalk.gray(`  • dotenv`));
+  console.log(chalk.gray(`  • ${DATABASE_DRIVERS[databaseType as keyof typeof DATABASE_DRIVERS].name} (database driver)`));
+  console.log(chalk.gray(`  • @ai-sdk/anthropic & @ai-sdk/openai (LLM providers)`));
+  if (dependencies.length > 4) {
+    console.log(chalk.gray(`  • ${dependencies.slice(4).join(', ')}`));
+  }
+  console.log('');
+
+  const spinner = ora('Running npm install...').start();
 
   try {
     execSync(`npm install ${dependencies.join(' ')}`, {
@@ -299,6 +311,15 @@ export async function runSetup(): Promise<void> {
     boxen(
       chalk.bold.green('✓ Setup complete!') +
         '\n\n' +
+        chalk.white('Installed:') +
+        '\n' +
+        chalk.gray(`  • ${config.databaseType} database driver`) +
+        '\n' +
+        chalk.gray('  • @ai-sdk/anthropic & @ai-sdk/openai') +
+        (llmProvider !== 'anthropic' && llmProvider !== 'openai'
+          ? '\n' + chalk.gray(`  • @ai-sdk/${llmProvider}`)
+          : '') +
+        '\n\n' +
         chalk.white('Next steps:') +
         '\n\n' +
         chalk.cyan('  1. Review your .env file') +
@@ -307,6 +328,8 @@ export async function runSetup(): Promise<void> {
         '\n' +
         chalk.cyan('  3. Or try: npx nttp query "show me 5 records"') +
         '\n\n' +
+        chalk.gray('Switch providers anytime by changing LLM_PROVIDER in .env') +
+        '\n' +
         chalk.gray('Documentation: https://github.com/tylergibbs/nttp'),
       {
         padding: 1,
