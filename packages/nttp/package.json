@@ -44,7 +44,7 @@
   "bugs": {
     "url": "https://github.com/tylergibbs/nttp/issues"
   },
-  "homepage": "https://github.com/tylergibbs/nttp#readme",
+  "homepage": "https://nttp.dev/",
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.0",
     "@ai-sdk/openai": "^3.0.0",
