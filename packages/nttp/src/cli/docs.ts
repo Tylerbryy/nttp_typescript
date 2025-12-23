@@ -8,6 +8,14 @@ const DOCS = {
 
 Natural Text Transfer Protocol - Query databases with natural language.
 
+## Key Features
+
+- 🧠 Natural language to SQL conversion
+- 🔄 Auto error correction (LLM fixes failed SQL up to 3x)
+- ⚡ 3-layer caching (L1/L2/L3)
+- 🔒 Read-only, safe SQL generation
+- 🌐 Multi-database support (PostgreSQL, MySQL, SQLite, SQL Server)
+
 ## Quick Start
 
 ### Interactive Setup (for humans):

@@ -151,6 +151,7 @@ interface QueryResult {
     cost: number;           // Estimated cost in USD
     latency: number;        // Query latency in ms
     similarity?: number;    // Semantic similarity (L2 only)
+    attempts?: number;      // SQL generation attempts (L3 only, 1-3)
   };
 }
 ```
@@ -178,13 +179,30 @@ const fresh = await nttp.query("show products", {
 const result = await nttp.query("show users");
 if (result.meta) {
   console.log(`Cache: L${result.meta.cacheLayer}, Cost: $${result.meta.cost}, Latency: ${result.meta.latency}ms`);
+
+  // Check if error correction was used (L3 only)
+  if (result.meta.cacheLayer === 3 && result.meta.attempts > 1) {
+    console.log(`✓ SQL auto-corrected after ${result.meta.attempts} attempts`);
+  }
 }
 ```
+
+**Automatic Error Correction:**
+
+If the generated SQL fails to execute, NTTP automatically:
+1. Sends the error back to the LLM
+2. Asks it to analyze and fix the issue
+3. Retries with corrected SQL (up to 3 attempts total)
+
+This significantly improves success rate for queries with minor issues like:
+- Wrong column names (LLM checks schema and corrects)
+- Syntax errors (LLM fixes syntax)
+- Type mismatches (LLM adjusts types)
 
 **Throws:**
 - `IntentParseError` - Failed to parse natural language query
 - `SQLGenerationError` - Failed to generate SQL from intent
-- `SQLExecutionError` - Database query execution failed
+- `SQLExecutionError` - Database query execution failed after all retry attempts
 
 See [Examples](./examples.md) for comprehensive query examples.
 

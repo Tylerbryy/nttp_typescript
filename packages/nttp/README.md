@@ -73,6 +73,7 @@ Most queries hit L1 or L2. Only novel queries reach the LLM.
 ## Features
 
 - **Natural Language Queries** - "show active users" → `SELECT * FROM users WHERE status = 'active'`
+- **Auto Error Correction** - LLM automatically fixes failed SQL (up to 3 attempts)
 - **3-Layer Caching** - Exact, semantic, and LLM-generated query caching
 - **Multi-LLM Support** - Claude, GPT-4, Cohere, Mistral, Gemini
 - **Multi-Database** - PostgreSQL, MySQL, SQLite, SQL Server

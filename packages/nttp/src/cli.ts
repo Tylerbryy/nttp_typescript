@@ -14,7 +14,7 @@ const program = new Command();
 program
   .name('nttp')
   .description('Query databases with natural language')
-  .version('1.4.13');
+  .version('1.4.16');
 
 program
   .command('setup')

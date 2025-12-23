@@ -200,6 +200,7 @@ export interface L3CacheMeta {
 	readonly cacheLayer: 3;
 	readonly cost: number;
 	readonly latency: number;
+	readonly attempts: number; // Number of SQL generation attempts (1-3)
 }
 
 /**

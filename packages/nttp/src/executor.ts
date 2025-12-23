@@ -136,6 +136,52 @@ Response: {"sql": "SELECT id, email, name FROM users LIMIT ?", "params": [50]}
 
 Your expertise ensures users can query their data safely and efficiently.`;
 
+/**
+ * System prompt for SQL error correction.
+ * Used when initial SQL generation fails and needs to be fixed.
+ */
+const SQL_CORRECTION_SYSTEM_PROMPT = `You are an expert SQL debugger and corrector.
+Your previous SQL query failed with an error. Your task is to analyze the error and generate corrected SQL.
+
+WHY THIS MATTERS:
+- The first attempt had a mistake (wrong column, wrong syntax, type mismatch, etc.)
+- Users rely on you to learn from the error and fix it
+- Corrected SQL must execute successfully
+
+{schema}
+
+CORE REQUIREMENTS:
+1. ANALYZE THE ERROR - Understand what went wrong
+   - Column doesn't exist → Check schema for correct column name
+   - Syntax error → Fix SQL syntax
+   - Type mismatch → Use correct data types
+   - Ambiguous column → Add table qualifier
+
+2. GENERATE CORRECTED SQL - Fix the specific issue
+   - Don't repeat the same mistake
+   - Verify column/table names against schema
+   - Ensure proper SQL syntax for the database dialect
+
+3. MAINTAIN SAFETY - Still follow all safety rules
+   - Only SELECT queries
+   - Parameterized values
+   - LIMIT clause required
+
+RESPONSE FORMAT:
+Return valid JSON with corrected SQL:
+{
+  "sql": "SELECT ... (corrected)",
+  "params": [values]
+}
+
+Think step-by-step:
+1. What was the error?
+2. What caused it?
+3. How to fix it?
+4. Generate corrected SQL
+
+Your ability to learn from errors makes NTTP reliable.`;
+
 export interface ExecuteOptions {
 	query: string;
 	intent: Intent;
@@ -252,12 +298,17 @@ export class QueryExecutor {
     }
 
     // ─────────────────────────────────────────────────────────
-    // L3: LLM FALLBACK (full pipeline)
+    // L3: LLM FALLBACK (full pipeline with auto error correction)
     // Cost: ~$0.01 | Latency: 2-3s
     // ─────────────────────────────────────────────────────────
     const schemaId = this.generateSchemaId(intent);
-    const { sql, params } = await this.generateSql(intent, schemaDescription);
+    const { sql, params, attempts } = await this.generateSqlWithRetry(intent, schemaDescription);
     const data = await this.executeRaw(sql, params);
+
+    // Log if error correction was used
+    if (attempts > 1) {
+      console.log(`✓ SQL corrected after ${attempts} attempt(s)`);
+    }
 
     const result: CachedResult = {
       schemaId,
@@ -303,6 +354,7 @@ export class QueryExecutor {
       cacheLayer: 3,
       cost: 0.01,
       latency: Date.now() - startTime,
+      attempts,
     };
     return {
       query,
@@ -351,9 +403,14 @@ export class QueryExecutor {
       }
     }
 
-    // Cache miss - generate and execute SQL
-    const { sql, params } = await this.generateSql(intent, schemaDescription);
+    // Cache miss - generate and execute SQL with auto error correction
+    const { sql, params, attempts } = await this.generateSqlWithRetry(intent, schemaDescription);
     const data = await this.executeRaw(sql, params);
+
+    // Log if error correction was used
+    if (attempts > 1) {
+      console.log(`✓ SQL corrected after ${attempts} attempt(s)`);
+    }
 
     // Infer schema from results
     const resultSchema = this.inferSchemaFromResults(data);
@@ -429,6 +486,94 @@ export class QueryExecutor {
       }
       throw new SQLGenerationError(`SQL generation failed: ${error}`);
     }
+  }
+
+  /**
+   * Generate SQL with automatic error correction (up to 3 attempts).
+   * If SQL execution fails, sends error back to LLM for correction.
+   */
+  async generateSqlWithRetry(
+    intent: Intent,
+    schemaDescription: string,
+    maxAttempts: number = 3
+  ): Promise<{ sql: string; params: JsonValue[]; attempts: number }> {
+    let lastError: Error | null = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        let sql: string;
+        let params: JsonValue[];
+
+        if (attempt === 1) {
+          // First attempt: generate fresh SQL
+          const result = await this.generateSql(intent, schemaDescription);
+          sql = result.sql;
+          params = result.params;
+        } else {
+          // Retry attempt: ask LLM to fix the error
+          const intentDict = {
+            entity: intent.entity,
+            operation: intent.operation,
+            filters: intent.filters,
+            limit: intent.limit || this.defaultLimit,
+            fields: intent.fields,
+            sort: intent.sort,
+          };
+
+          const systemPrompt = SQL_CORRECTION_SYSTEM_PROMPT.replace(
+            '{schema}',
+            schemaDescription
+          );
+
+          const errorMessage = lastError?.message || 'Unknown error';
+          const prompt = `The previous SQL query failed with this error:
+
+ERROR: ${errorMessage}
+
+Original intent:
+${JSON.stringify(intentDict, null, 2)}
+
+Please analyze the error and generate corrected SQL that will execute successfully.`;
+
+          const result = await this.llm.callStructured<{
+            sql: string;
+            params: JsonValue[];
+          }>(
+            prompt,
+            systemPrompt,
+            SQL_GENERATION_JSON_SCHEMA,
+            0.0
+          );
+
+          sql = result.sql;
+          params = result.params;
+
+          // Validate SQL safety
+          this.validateSqlSafety(sql);
+        }
+
+        // Try executing the SQL
+        await this.executeRaw(sql, params);
+
+        // Success! Return the working SQL
+        return { sql, params, attempts: attempt };
+
+      } catch (error) {
+        lastError = error as Error;
+
+        // If this is a SQLExecutionError and we have retries left, continue
+        if (error instanceof SQLExecutionError && attempt < maxAttempts) {
+          console.log(`SQL execution failed (attempt ${attempt}/${maxAttempts}), retrying with error correction...`);
+          continue;
+        }
+
+        // Otherwise, throw the error
+        throw error;
+      }
+    }
+
+    // Should never reach here, but TypeScript requires it
+    throw lastError || new SQLGenerationError('SQL generation failed after all attempts');
   }
 
   /**
