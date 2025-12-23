@@ -10,6 +10,8 @@ npm install nttp
 
 ## Quick Start with CLI (Recommended)
 
+### For Humans: Interactive Setup
+
 The easiest way to get started is with our **interactive setup wizard** (powered by [Ink](https://github.com/vadimdemedes/ink) for a beautiful CLI experience):
 
 ```bash
@@ -23,11 +25,61 @@ This will:
 - ✅ Create your `.env` file
 - ✅ Generate example code
 
-Then query your database:
+### For LLM Agents: Non-Interactive Setup
+
+Perfect for automation, CI/CD, or LLM agents:
+
+```bash
+npx nttp setup --non-interactive \
+  --database-type=pg \
+  --database-url=postgresql://user:pass@localhost:5432/db \
+  --llm-provider=anthropic \
+  --llm-api-key=sk-ant-... \
+  --redis-url=redis://localhost:6379 \
+  --enable-l2-cache \
+  --embedding-api-key=sk-...
+```
+
+**Minimal example (SQLite + Claude):**
+```bash
+npx nttp setup --non-interactive \
+  --database-type=better-sqlite3 \
+  --database-path=./data.db \
+  --llm-provider=anthropic \
+  --llm-api-key=sk-ant-...
+```
+
+**All available flags:**
+- `--database-type` - Required: `pg`, `mysql2`, `better-sqlite3`, `mssql`
+- `--database-url` - Required (except for SQLite): Connection URL
+- `--database-path` - Required for SQLite: Path to .db file
+- `--llm-provider` - Required: `anthropic`, `openai`, `cohere`, `mistral`, `google`
+- `--llm-model` - Optional: Model name (auto-selected if omitted)
+- `--llm-api-key` - Required: API key for LLM provider
+- `--redis-url` - Optional: Redis URL for L1 cache persistence
+- `--enable-l2-cache` - Optional: Enable semantic caching
+- `--embedding-api-key` - Required if L2 enabled: OpenAI API key
+
+### Query Your Database
 
 ```bash
 npx nttp query "show me 5 users"
 ```
+
+### Get Documentation (Great for LLM Agents)
+
+```bash
+# Show all documentation
+npx nttp docs
+
+# Search documentation
+npx nttp docs redis
+npx nttp docs "cache configuration"
+npx nttp docs setup
+npx nttp docs --query "semantic cache"
+```
+
+Returns relevant sections instantly - perfect for agents to quickly find information!
 
 Or use in your code:
 
@@ -300,6 +352,8 @@ Beautiful interactive setup wizard (powered by Ink) with Vercel-inspired DX:
 - Creates `.env` file
 - Generates example code
 
+For non-interactive setup (agents/automation), see the section above.
+
 ### `npx nttp init`
 
 Alias for `npx nttp setup`. Quick project initialization.
@@ -316,6 +370,36 @@ npx nttp query "top 10 customers by revenue" --format json
 
 Options:
 - `--format <type>` - Output format: `table` (default) or `json`
+
+### `npx nttp docs [query]`
+
+Show documentation or search for specific topics (perfect for LLM agents):
+
+```bash
+# Show all documentation
+npx nttp docs
+
+# Search for specific topics
+npx nttp docs redis              # Find Redis-related docs
+npx nttp docs cache              # Find cache documentation
+npx nttp docs setup              # Find setup instructions
+npx nttp docs "l2 semantic"      # Multi-word search
+npx nttp docs --query "api key"  # Alternative syntax
+```
+
+**Searchable Topics:**
+- `setup` - Setup command and configuration
+- `cache` - 3-layer cache system (L1, L2, L3)
+- `redis` - Redis persistence configuration
+- `query` - Query command and examples
+- `api` - Programmatic API usage
+- `databases` - Supported databases
+- `llm` - LLM providers and models
+- `performance` - Performance metrics and optimization
+- `troubleshooting` - Common issues and solutions
+- `examples` - Example natural language queries
+
+**Agent-Friendly Output:** Returns only relevant sections with context, making it easy for LLM agents to quickly find information without parsing full documentation files.
 
 ## Error Handling
 
