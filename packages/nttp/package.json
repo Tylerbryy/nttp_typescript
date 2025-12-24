@@ -39,10 +39,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/tylergibbs/nttp.git"
+    "url": "https://github.com/Tylerbryy/nttp_typescript.git"
   },
   "bugs": {
-    "url": "https://github.com/tylergibbs/nttp/issues"
+    "url": "https://github.com/Tylerbryy/nttp_typescript/issues"
   },
   "homepage": "https://nttp.dev/",
   "dependencies": {
